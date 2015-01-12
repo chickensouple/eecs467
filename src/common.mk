@@ -13,6 +13,8 @@
 # -Wno-unused-parameter: permit a function to ignore an argument
 CFLAGS_STD   := -std=gnu99 -g -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_REENTRANT \
 		-Wall -Wno-unused-parameter -Wno-format-zero-length -pthread -fPIC
+CXXFLAGS_STD := -std=c++0x -g -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -D_REENTRANT \
+		-Wall -Wno-unused-parameter -Wno-format-zero-length -pthread -fPIC
 LDFLAGS_STD  := -lm -lpthread
 
 ROOT_PATH    := $(subst /src/common.mk,,$(realpath $(lastword $(MAKEFILE_LIST))))
@@ -25,6 +27,7 @@ SOLNS_PATH   := $(ROOT_PATH)/solns
 CONFIG_DIR   := $(shell pwd)/../../config
 
 CC           := gcc
+CPP          := g++
 LD           := gcc
 
 #.SILENT:
@@ -117,7 +120,6 @@ else
     LDFLAGS_IPP:=-L$(IPP_BASE)/sharedlib -Wl,-R$(IPP_BASE)/sharedlib $(IPP_LIBS)
 endif
 
-
 ############################################################
 #
 # Internal libraries
@@ -134,10 +136,12 @@ libdeps = $(filter $(wildcard $(LIB_PATH)/*.a), $(patsubst -l%, $(LIB_PATH)/lib%
 
 # common
 CFLAGS_COMMON  := -I$(SRC_PATH) -DCONFIG_DIR='"$(CONFIG_DIR)"' $(CFLAGS_STD)
+CXXFLAGS_COMMON := -I$(SRC_PATH) -DCONFIG_DIR='"$(CONFIG_DIR)"' $(CXXFLAGS_STD)
 LDFLAGS_COMMON := -L$(LIB_PATH) -lcommon $(LDFLAGS_STD)
 
 # math
 CFLAGS_MATH  := -I$(SRC_PATH) $(CFLAGS_COMMON)
+CXXFLAGS_MATH := -I$(SRC_PATH) $(CXXFLAGS_COMMON)
 LDFLAGS_MATH := -L$(LIB_PATH) -lmath $(LDFLAGS_COMMON)
 
 # lcmtypes
@@ -146,6 +150,7 @@ LDFLAGS_LCMTYPES := -L$(LIB_PATH) -llcmtypes $(LDFLAGS_LCM)
 
 # imagesource
 CFLAGS_IMAGESOURCE  := $(CFLAGS_COMMON) $(CFLAGS_GTK) $(CFLAGS_USB) $(CFLAGS_PNG) $(CFLAGS_DC1394)
+CXXFLAGS_IMAGESOURCE := $(CXXFLAGS_COMMON) $(CFLAGS_GTK) $(CFLAGS_USB) $(CFLAGS_PNG) $(CFLAGS_DC1394)
 LDFLAGS_IMAGESOURCE := -L$(LIB_PATH) -limagesource $(LDFLAGS_COMMON) $(LDFLAGS_GTK) $(LDFLAGS_USB) $(LDFLAGS_PNG) $(LDFLAGS_DC1394)
 
 # vx (no GUI)
@@ -180,7 +185,7 @@ LDFLAGS_ROB550 := -L$(LIB_PATH) -lrob550 $(LDFLAGS_VX_GTK) $(LDFLAGS_IMAGESOURCE
 
 %.o: %.cpp
 	@echo "    $@"
-	@g++ -c -o $@ $< $(CFLAGS_CXX)
+	@g++ -c -o $@ $< $(CXXFLAGS)
 
 
 MAKEFLAGS += --no-print-directory
