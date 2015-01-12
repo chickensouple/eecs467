@@ -118,6 +118,5 @@ main (int argc, char *argv[])
 	// scan
 	// turn
 
-
 	return 0;
 }
