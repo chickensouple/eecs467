@@ -4,6 +4,8 @@
 *.obj
 *.elf
 
+/lcmtypes
+
 # Precompiled Headers
 *.gch
 *.pch
