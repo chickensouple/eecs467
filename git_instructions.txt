@@ -1,0 +1,40 @@
+GIT SETUP INSTRUCTIONS AND CHEAT SHEET
+
+SETUP
+    Use github to fork our class repository at https://github.com/UMEECS467W15/eecs467
+
+    Clone into your repository:
+        git clone <url for your fork of the class repository> eecs467
+
+    Setup the upstream connection:
+        cd ~/eecs467
+        git remote add upstream https://github.com/UMEECS467W15/eecs467.git
+
+
+        Verify the new upstream repository you've specified for your fork:
+            git remote -v 
+
+        Should show: 
+            origin    https://github.com/YOUR_USERNAME/YOUR_FORK.git (fetch)
+            origin    https://github.com/YOUR_USERNAME/YOUR_FORK.git (push)
+            upstream  https://github.com/UMEECS467W15/eecs467.git (fetch)
+            upstream  https://github.com/UMEECS467W15/eecs467.git (push)
+
+SYNCHING WITH CLASS REPO
+    To synch your repo with the class repo, you can use 
+        git pull upstream master
+    or if you have a clean working tree
+        git pull --rebase upstream master
+        
+USEFUL GIT COMMANDS
+    git pull - Get new changes from group members
+    git push - Give your local repo changes to group members
+    git add - Add files to be committed
+    git commit - Commit to the local repo
+    git status - see what's going on right now
+    git diff - see changes you made
+    git checkout - create/write over files with ones from the repo 
+                    (good for discarding changes)
+    git merge - combine changes from various sources
+    
+     
