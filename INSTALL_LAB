@@ -9,6 +9,7 @@ export VX_SHADER_PATH=~/eecs467/src/vx/shaders
 export VX_FONT_PATH=~/eecs467/src/vx/fonts
 export CLASSPATH=$CLASSPATH:~/eecs467/java/lcmtypes.jar
 
+You will need to reopen the terminal for the changes to take effect.
 
 build the code:
 cd ~/eecs467

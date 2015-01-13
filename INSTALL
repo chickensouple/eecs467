@@ -22,6 +22,14 @@ sudo cp ~/eecs467/misc/99-eecs467.rules /etc/udev/rules.d/.
 
 Then, unplug your USB devices and plug them back in so the rules take effect. You should now be able to run rexarm_driver without sudo.
 
+To setup vx, you will need to set some environment variables. We recommend adding the following 3 lines to the end of your ~/.bashrc file (this is a hidden file in your home directory, which can be made visible with Ctrl-H on Ubuntu)
+
+export VX_SHADER_PATH=~/eecs467/src/vx/shaders
+export VX_FONT_PATH=~/eecs467/src/vx/fonts
+export CLASSPATH=$CLASSPATH:~/eecs467/java/lcmtypes.jar
+
+You will need to reopen the terminal for the changes to take effect.
+
 Upon a clean checkout of eecs467, as a one time thing, you need to build vx's fonts (you will need a working internet connection for this so that the Makefile can pull a fonts tarball from the web):
 
 cd ~/eecs467/src/vx
@@ -31,3 +39,5 @@ You are now all set to build the eecs467 source using `make` or `make clean`:
 
 cd ~/eecs467
 make clean && make
+
+
