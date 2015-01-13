@@ -11,25 +11,30 @@
 #define MTR_STOP 0.0f
 #define TICK_2_FEET 2911
 #define TICK_3_FEET 4366
+#define TICK_TURN 300
 
-maebot_motor_command_t msg;
-pthread_mutex_t msg_mutex;
-pthread_mutex_t tick_mutex;
-int global_tick;
-int global_initial_tick;
+typedef struct {
+	maebot_motor_command_t msg; // motor state.msg
+	pthread_mutex_t msg_mutex; // mutex for motor command state.msg
 
-void *
-diff_drive_thread (void *arg)
+	pthread_mutex_t tick_mutex; // mutex for state.tick
+	int tick; // encoder ticks
+	int initial_tick; // an intial state.tick
+
+	lcm_t* lcm; // lcm
+} state_t;
+
+state_t state; // global state
+
+void* diff_drive_thread(void *arg)
 {
-	lcm_t *lcm = lcm_create (NULL);
-
 	uint64_t utime_start;
 	while(1) {
 		utime_start = utime_now ();
 
-		pthread_mutex_lock (&msg_mutex);
-		maebot_motor_command_t_publish (lcm, "MAEBOT_MOTOR_COMMAND", &msg);
-		pthread_mutex_unlock (&msg_mutex);
+		pthread_mutex_lock (&state.msg_mutex);
+		maebot_motor_command_t_publish (state.lcm, "MAEBOT_MOTOR_COMMAND", &state.msg);
+		pthread_mutex_unlock (&state.msg_mutex);
 
 		usleep (CMD_PRD - (utime_now() - utime_start));
 	}
@@ -37,86 +42,107 @@ diff_drive_thread (void *arg)
 	return NULL;
 }
 
-static void
-motor_feedback_handler (const lcm_recv_buf_t *rbuf, const char *channel,
-						const maebot_motor_feedback_t *msg, void *user)
+static void motor_feedback_handler(const lcm_recv_buf_t *rbuf,
+	const char *channel, const maebot_motor_feedback_t *msg, void *user)
 {
 	int res = system ("clear");
 	if (res)
 		printf ("system clear failed\n");
 
-	pthread_mutex_lock(&tick_mutex);
-	global_tick = msg->encoder_left_ticks;
-	pthread_mutex_unlock (&tick_mutex);
+	pthread_mutex_lock(&state.tick_mutex);
+	state.tick = msg->encoder_left_ticks;
+	pthread_mutex_unlock (&state.tick_mutex);
 }
 
-int
-main (int argc, char *argv[])
+int main(int argc, char *argv[])
 {
-	if (pthread_mutex_init (&msg_mutex, NULL)) {
-		printf ("msg mutex init failed\n");
+	if (pthread_mutex_init (&state.msg_mutex, NULL)) {
+		printf ("state.msg mutex init failed\n");
 		return 1;
 	}
 
-	if (pthread_mutex_init (&tick_mutex, NULL)) {
+	if (pthread_mutex_init (&state.tick_mutex, NULL)) {
 		printf ("tick mutex init failed\n");
 		return 1;
 	}
 
-	// Init msg
+	// Init state.msg
 	// no need for mutex here, as command thread hasn't started yet.
-	msg.motor_left_speed = MTR_STOP;
-	msg.motor_right_speed = MTR_STOP;
+	state.msg.motor_left_speed = MTR_STOP;
+	state.msg.motor_right_speed = MTR_STOP;
 
 	// Start sending motor commands
 	pthread_t diff_drive_thread_pid;
 	pthread_create (&diff_drive_thread_pid, NULL, diff_drive_thread, NULL);
 
-	maebot_motor_feedback_t_subscribe (lcm,
+	maebot_motor_feedback_t_subscribe(state.lcm,
 		"MAEBOT_MOTOR_FEEDBACK",
 		motor_feedback_handler,
 		NULL);
 
-	// // forward
-	// pthread_mutex_lock (&msg_mutex);
-	// msg.motor_left_speed  = MTR_SPD;
-	// msg.motor_right_speed = MTR_SPD;
-	// pthread_mutex_unlock (&msg_mutex);
-
-	// usleep (500000);
-
-	pthread_mutex_lock(&tick_mutex);
-	global_tick = 0;
-	pthread_mutex_unlock (&tick_mutex);
+	pthread_mutex_lock(&state.tick_mutex);
+	state.tick = 0;
+	pthread_mutex_unlock (&state.tick_mutex);
 
 	// check initial check
-	while (global_tick == 0);
-	pthread_mutex_lock(&tick_mutex);
-	global_initial_tick = global_tick;
-	pthread_mutex_unlock (&tick_mutex);
+	while (state.tick == 0);
+	pthread_mutex_lock(&state.tick_mutex);
+	state.initial_tick = state.tick;
+	pthread_mutex_unlock (&state.tick_mutex);
 
-	pthread_mutex_lock (&msg_mutex);
-	msg.motor_left_speed  = MTR_SPD;
-	msg.motor_right_speed = MTR_SPD;
-	pthread_mutex_unlock (&msg_mutex);
-
-	while (global_tick < TICK_2_FEET + global_initial_tick);
+	// go forward 2 feet
+	pthread_mutex_lock (&state.msg_mutex);
+	state.msg.motor_left_speed  = MTR_SPD;
+	state.msg.motor_right_speed = MTR_SPD;
+	pthread_mutex_unlock (&state.msg_mutex);
+	while (state.tick < TICK_2_FEET + state.initial_tick);
 
 	// stop
-	pthread_mutex_lock (&msg_mutex);
-	msg.motor_left_speed  = MTR_STOP;
-	msg.motor_right_speed = MTR_STOP;
-	pthread_mutex_unlock (&msg_mutex);
+	pthread_mutex_lock (&state.msg_mutex);
+	state.msg.motor_left_speed  = MTR_STOP;
+	state.msg.motor_right_speed = MTR_STOP;
+	pthread_mutex_unlock (&state.msg_mutex);
 
-	// scan and take whatever measurements
+	// update initial_tick
+	state.initial_tick += TICK_2_FEET;
 
-	// turn
-
-	// go forward
-	// wait 3 feet
-	// stop
 	// scan
+
 	// turn
+	pthread_mutex_lock (&state.msg_mutex);
+	state.msg.motor_left_speed  = MTR_SPD;
+	state.msg.motor_right_speed = -MTR_SPD;
+	pthread_mutex_unlock (&state.msg_mutex);
+	while (state.tick < state.initial_tick + TICK_TURN);
+
+	state.initial_tick += TICK_TURN;
+
+	// go forward 3 feet
+	pthread_mutex_lock (&state.msg_mutex);
+	state.msg.motor_left_speed  = MTR_SPD;
+	state.msg.motor_right_speed = MTR_SPD;
+	pthread_mutex_unlock (&state.msg_mutex);
+	while (state.tick < TICK_3_FEET + state.initial_tick);
+
+	state.initial_tick += TICK_3_FEET;
+
+	// stop
+	pthread_mutex_lock (&state.msg_mutex);
+	state.msg.motor_left_speed  = MTR_STOP;
+	state.msg.motor_right_speed = MTR_STOP;
+	pthread_mutex_unlock (&state.msg_mutex);
+
+	// scan
+
+
+	// turn
+	pthread_mutex_lock (&state.msg_mutex);
+	state.msg.motor_left_speed  = MTR_SPD;
+	state.msg.motor_right_speed = -MTR_SPD;
+	pthread_mutex_unlock (&state.msg_mutex);
+	while (state.tick < state.initial_tick + TICK_TURN);
+
+	state.initial_tick += TICK_TURN;
 
 	return 0;
 }
