@@ -19,6 +19,13 @@
 #include "imagesource/image_u32.h"
 #include "imagesource/image_util.h"
 
+//lcm
+#include <lcm/lcm.h>
+#include "lcmtypes/dynamixel_command_list_t.h"
+#include "lcmtypes/dynamixel_command_t.h"
+#include "lcmtypes/dynamixel_status_list_t.h"
+#include "lcmtypes/dynamixel_status_t.h"
+
 #define BAR_WIDTH_MAX 150
 #define BAR_HEIGHT 20
 #define SPACE_BETWEEN_BARS 40
@@ -27,8 +34,8 @@
 #define Y_OFFSET_TITLE -20
 #define NUM_SERVOS 6
 double servo_angle[] 	 = { 0, 0, 0, 0, 0, 0 };
-double servo_angle_min[] = {-1,-1,-1,-1,-1,-1 };
-double servo_angle_max[] = { 1, 1, 1, 1, 1, 1 };
+double servo_angle_min[] = {-3.14,-2.094,-2.094,-2.094,-2.618,-0.9 };
+double servo_angle_max[] = { 3.14, 2.094, 2.094, 2.094, 2.618, 2.3 };
 
 typedef struct
 {
@@ -43,8 +50,12 @@ typedef struct
 
     pthread_mutex_t mutex; // for accessing the arrays
     pthread_t animate_thread;
-} state_t;
+    pthread_t status_thread;
 
+    // LCM
+    lcm_t *lcm;
+    const char *status_channel;
+} state_t;
 
 //return val such that it is no smallr than min and no larger than max (if max < min, they are swapped).
 static double clamp(double val, double min, double max)
@@ -60,19 +71,49 @@ static double clamp(double val, double min, double max)
 	return val;
 }
 
-static void update_custom_logic()
+static void
+status_handler (const lcm_recv_buf_t *rbuf,
+                const char *channel,
+                const dynamixel_status_list_t *msg,
+                void *user)
 {
+    // Print out servo positions
+    /*for (int id = 0; id < msg->len; id++) {
+        dynamixel_status_t stat = msg->statuses[id];
+        printf ("[id %d]=%6.3f ",id, stat.position_radians);
+    }
+    printf ("\n");*/
 	//set servo_angle[]'s values here.
 	for(int i = 0; i < NUM_SERVOS; i++)
 	{
-		//Do servo logic here.
-		servo_angle[i] += 0.001 * i;
-		if(servo_angle[i] > servo_angle_max[i])
-			servo_angle[i] = servo_angle_min[i];
+		servo_angle[i] = (double) msg->statuses[i].position_radians;
 
 		//Set servo angle value between bounds.
 		servo_angle[i] = clamp(servo_angle[i], servo_angle_min[i], servo_angle_max[i]);
 	}
+}
+
+void *
+status_loop (void *data)
+{
+    state_t *state = data;
+    dynamixel_status_list_t_subscribe (state->lcm,
+                                       state->status_channel,
+                                       status_handler,
+                                       state);
+    const int hz = 15;
+    while (1) {
+        // Set up the LCM file descriptor for waiting. This lets us monitor it
+        // until something is "ready" to happen. In this case, we are ready to
+        // receive a message.
+        int status = lcm_handle_timeout (state->lcm, 1000/hz);
+        if (status <= 0)
+           continue;
+	
+        // LCM has events ready to be processed
+    }
+
+    return NULL;
 }
 
 static void draw(state_t * state, vx_world_t * world)
@@ -147,8 +188,6 @@ void * render_loop(void * data)
     state_t * state = data;
     while(state->running) {
 
-	update_custom_logic();
-
 	vx_buffer_t *vb = vx_world_get_buffer(state->world, "bars");
 	vx_object_t *vt_ = vxo_text_create(VXO_TEXT_ANCHOR_CENTER, "REXARM");
 	vx_buffer_add_back(vb, vxo_pix_coords(VX_ORIGIN_TOP,
@@ -187,7 +226,7 @@ void * render_loop(void * data)
 		                     vxo_mat_scale3(w,h,1),
 		                     vxo_box(vxo_mesh_style(bar_front_col)))));
 	char s[100];
-	sprintf(s, "<<center,#0000ff>>%f", servo_angle[i]);
+	sprintf(s, "<<center,#0000ff>>[%d]: %f", i, servo_angle[i]);
 	vx_object_t *vt = vxo_text_create(VXO_TEXT_ANCHOR_TOP, s);
 	vx_buffer_add_back(vb, vxo_pix_coords(VX_ORIGIN_TOP,
 				vxo_chain(
@@ -208,6 +247,7 @@ int main(int argc, char ** argv)
     getopt_add_bool (gopt, '\0', "no-gtk", 0, "Don't show gtk window, only advertise remote connection");
     getopt_add_string (gopt, '\0', "pnm", "", "Path for pnm file to render as texture (.e.g BlockM.pnm)");
     getopt_add_bool (gopt, '\0', "stay-open", 0, "Stay open after gtk exits to continue handling remote connections");
+    getopt_add_string (gopt, '\0', "status-channel", "ARM_STATUS", "LCM status channel");
 
     // parse and print help
     if (!getopt_parse(gopt, argc, argv, 1) || getopt_get_bool(gopt,"help")) {
@@ -219,6 +259,10 @@ int main(int argc, char ** argv)
     vx_global_init(); // Call this to initialize the vx-wide lock. Required to start the GL thread or to use the program library
 
     state_t * state = state_create();
+
+    //subscribe to lcm status channel
+    state->lcm = lcm_create (NULL);
+    state->status_channel = getopt_get_string (gopt, "status-channel");
 
     // Load a pnm from file, and repack the data so that it's understandable by vx
     if (strcmp(getopt_get_string(gopt,"pnm"),"")) {
@@ -236,6 +280,8 @@ int main(int argc, char ** argv)
     remote_attr.advertise_name = "Vx Demo";
     vx_remote_display_source_t * cxn = vx_remote_display_source_create_attr(&state->app, &remote_attr);
     pthread_create(&state->animate_thread, NULL, render_loop, state);
+
+    pthread_create (&state->status_thread, NULL, status_loop, state);
 
     if (!getopt_get_bool(gopt,"no-gtk")) {
         gdk_threads_init ();
@@ -265,6 +311,8 @@ int main(int argc, char ** argv)
 
     pthread_join(state->animate_thread, NULL);
     vx_remote_display_source_destroy(cxn);
+
+    lcm_destroy (state->lcm);
 
     state_destroy(state);
     vx_global_destroy();
