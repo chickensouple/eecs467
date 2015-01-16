@@ -75,7 +75,7 @@ status_loop (void *data)
     return NULL;
 }
 
-double cmd_pos[NUM_SERVOS] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+double cmd_pos[NUM_SERVOS] = {ANGLE_15d + 0.1, 0.0, 0.0, 0.0, 0.0, 0.0};
 
 void *
 command_loop (void *user)
