@@ -3,7 +3,10 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <inttypes.h>
+#include <stdint.h>
 #include <stdio.h>
+
+#include <iostream>
 
 #include "maebot/rplidar.h"
 #include "common/serial.h"
@@ -19,7 +22,8 @@
 #include "lcmtypes/maebot_laser_scan_t.h"
 
 #define CMD_PRD 50000 //us  -> 20Hz
-#define MTR_SPD 0.25f
+#define MTR_SPD_L 0.25f
+#define MTR_SPD_R 0.25f
 #define MTR_STOP 0.0f
 #define TICK_2_FEET 2911
 #define TICK_3_FEET 4366
@@ -34,14 +38,14 @@ typedef struct {
 	image_source_t *isrc;
 
 	// lidar
-	int dev;
-	bool scan_finished;
-	pthread_mutex_t scan_mutex;
-	int num_ranges;
-	float* ranges;
-	float* thetas;
-	long int* times;
-	float* intensities;
+	bool lidar_scan;
+	pthread_mutex_t lidar_mutex;
+	long int lidar_utime;
+	int lidar_num_ranges;
+	float* lidar_ranges;
+	float* lidar_thetas;
+	long int* lidar_times;
+	float* lidar_intensities;
 
 	// encoder
 	pthread_mutex_t tick_mutex;
@@ -57,13 +61,22 @@ int count;
 void* diff_drive_thread(void* arg)
 {
 	uint64_t utime_start;
+	uint64_t utime_end;
 	while(1) {
 		utime_start = utime_now();
+		// std::cout << "diff drive 1" << std::endl;
 		pthread_mutex_lock(&state.motor_command_msg_mutex);
+		// std::cout << "diff drive 2" << std::endl;
 		maebot_motor_command_t_publish(state.lcm, "MAEBOT_MOTOR_COMMAND", &state.motor_command_msg);
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
+		// std::cout << "diff drive 3" << std::endl;
+		utime_end = utime_now();
+		// std::cout << CMD_PRD - (utime_end - utime_start) << std::endl;
 
-		usleep(CMD_PRD - (utime_now() - utime_start));
+		if (CMD_PRD > (utime_end - utime_start)) {
+			usleep(CMD_PRD - (utime_end - utime_start));
+		}
+		// std::cout << "diff drive 4" << std::endl;
 	}
 
 	return NULL;
@@ -75,32 +88,46 @@ static void motor_feedback_handler(const lcm_recv_buf_t *rbuf,
 {
 	pthread_mutex_lock(&state.tick_mutex);
 	state.tick = motor_command_msg->encoder_left_ticks;
+	std::cout << "tick: " << state.tick << std::endl;
 	pthread_mutex_unlock(&state.tick_mutex);
 }
 
 static void laser_data_handler(const lcm_recv_buf_t *rbuf,
 	const char *channel,
 	const maebot_laser_scan_t *msg, void *user) {
-	pthread_mutex_lock(&state.scan_mutex);
-	state.num_ranges = msg->num_ranges;
-	if (state.ranges != NULL) free(state.ranges);
-	state.ranges = (float*) malloc(sizeof(float) * state.num_ranges);
+	std::cout << "laser" << std::endl;
 
-	if (state.thetas != NULL) free(state.thetas);
-	state.thetas = (float*) malloc(sizeof(float) * state.num_ranges);
+	pthread_mutex_lock(&state.lidar_mutex);
+	if (!state.lidar_scan) {
+		pthread_mutex_unlock(&state.lidar_mutex);
+		return;
+	}
+	pthread_mutex_unlock(&state.lidar_mutex);
 
-	if (state.times != NULL) free(state.times);
-	state.times = (long int*) malloc(sizeof(long int) * state.num_ranges);
 
-	if (state.intensities != NULL) free(state.intensities);
-	state.intensities = (float*) malloc(sizeof(float) * state.num_ranges);
+	pthread_mutex_lock(&state.lidar_mutex);
+	state.lidar_utime = msg->utime;
+	state.lidar_num_ranges = msg->num_ranges;
 
-	state.scan_finished = true;
-	pthread_mutex_unlock(&state.scan_mutex);
+	if (state.lidar_ranges != NULL) free(state.lidar_ranges);
+	state.lidar_ranges = (float*) malloc(sizeof(float) * state.lidar_num_ranges);
+
+	if (state.lidar_thetas != NULL) free(state.lidar_thetas);
+	state.lidar_thetas = (float*) malloc(sizeof(float) * state.lidar_num_ranges);
+
+	if (state.lidar_times != NULL) free(state.lidar_times);
+	state.lidar_times = (long int*) malloc(sizeof(long int) * state.lidar_num_ranges);
+
+	if (state.lidar_intensities != NULL) free(state.lidar_intensities);
+	state.lidar_intensities = (float*) malloc(sizeof(float) * state.lidar_num_ranges);
+
+	state.lidar_scan = false;
+	pthread_mutex_unlock(&state.lidar_mutex);
 }
 
 void* lcm_handle_thread(void* arg) {
 	while(1) {
+		std::cout << "handling" << std::endl;
 		pthread_mutex_lock(&state.motor_command_msg_mutex);
 		lcm_handle(state.lcm);
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
@@ -131,13 +158,43 @@ void poll_sensors(void) {
 	lcm_msg.height = im->height;
 	lcm_msg.buffer_size = im->height * im->stride;
 	lcm_msg.buff = (int32_t*) malloc(sizeof(int32_t) * lcm_msg.buffer_size);
-	memcpy(lcm_msg.buff, im->buf, lcm_msg.buffer_size);
+	memcpy(lcm_msg.buff, im->buf, lcm_msg.buffer_size * sizeof(int32_t));
 
 	// lidar
+	pthread_mutex_lock(&state.lidar_mutex);
+	state.lidar_scan = true;
+	pthread_mutex_unlock(&state.lidar_mutex);
+	while (1) {
+		pthread_mutex_lock(&state.lidar_mutex);
+		if (state.lidar_scan == false) {
+			pthread_mutex_unlock(&state.lidar_mutex);
+			break;
+		}
+		pthread_mutex_unlock(&state.lidar_mutex);
+	}
+
+	pthread_mutex_lock(&state.lidar_mutex);
+	// get the data
+	lcm_msg.lidar.utime = state.lidar_utime;
+	lcm_msg.lidar.num_ranges = state.lidar_num_ranges;
+	lcm_msg.lidar.ranges = (float*) malloc(sizeof(float) * state.lidar_num_ranges);
+	lcm_msg.lidar.thetas = (float*) malloc(sizeof(float) * state.lidar_num_ranges);
+	lcm_msg.lidar.times = (int64_t*) malloc(sizeof(int64_t) * state.lidar_num_ranges);
+	lcm_msg.lidar.intensities = (float*) malloc(sizeof(float) * state.lidar_num_ranges);
+	memcpy(lcm_msg.lidar.ranges, state.lidar_ranges, state.lidar_num_ranges * sizeof(float));
+	memcpy(lcm_msg.lidar.thetas, state.lidar_thetas, state.lidar_num_ranges * sizeof(float));
+	memcpy(lcm_msg.lidar.times, state.lidar_times, state.lidar_num_ranges * sizeof(long int));
+	memcpy(lcm_msg.lidar.intensities, state.lidar_intensities, state.lidar_num_ranges * sizeof(float));
+	pthread_mutex_unlock(&state.lidar_mutex);
+
 
 	maebot_a0_sensor_data_t_publish(state.lcm, "MAEBOT_A0_SENSOR_DATA", &lcm_msg);
 
 	free(lcm_msg.buff);
+	free(lcm_msg.lidar.ranges);
+	free(lcm_msg.lidar.thetas);
+	free(lcm_msg.lidar.times);
+	free(lcm_msg.lidar.intensities);
 	image_u32_destroy(im);
 }
 
@@ -153,16 +210,16 @@ void init_state(void) {
 		exit(1);
 	}
 
-	if (pthread_mutex_init(&state.scan_mutex, NULL)) {
+	if (pthread_mutex_init(&state.lidar_mutex, NULL)) {
 		printf("scan mutex init failed\n");
 		exit(1);
 	}
 
-	state.num_ranges = 0;
-	state.ranges = NULL;
-	state.thetas = NULL;
-	state.times = NULL;
-	state.intensities = NULL;
+	state.lidar_num_ranges = 0;
+	state.lidar_ranges = NULL;
+	state.lidar_thetas = NULL;
+	state.lidar_times = NULL;
+	state.lidar_intensities = NULL;
 
 	state.lcm = lcm_create(NULL);
 	if (!state.lcm) {
@@ -189,6 +246,8 @@ void init_state(void) {
 
 	if (state.isrc->start(state.isrc))
 		exit(-1);
+
+	state.lidar_scan = false;
 
 	// Init state.motor_command_msg
 	// no need for mutex here, as command thread hasn't started yet.
@@ -225,6 +284,7 @@ int main(int argc, char *argv[])
 		// check initial check
 		while (1) {
 			pthread_mutex_lock(&state.tick_mutex);
+			std::cout << "initial check: " << state.tick << std::endl;
 			if (state.tick != -60000) {
 				pthread_mutex_unlock(&state.tick_mutex);
 				break;
@@ -238,10 +298,11 @@ int main(int argc, char *argv[])
 		// go forward 2 feet
 		printf("forward2\t");
 		pthread_mutex_lock(&state.motor_command_msg_mutex);
-		state.motor_command_msg.motor_left_speed  = MTR_SPD;
-		state.motor_command_msg.motor_right_speed = MTR_SPD;
+		state.motor_command_msg.motor_left_speed  = MTR_SPD_L;
+		state.motor_command_msg.motor_right_speed = MTR_SPD_R;
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
 		while (1) {
+			std::cout << "blah1: " << TICK_2_FEET + state.initial_tick << std::endl;
 			pthread_mutex_lock(&state.tick_mutex);
 			if (state.tick > TICK_2_FEET + state.initial_tick) {
 				pthread_mutex_unlock(&state.tick_mutex);
@@ -267,10 +328,11 @@ int main(int argc, char *argv[])
 		// turn
 		printf("turning\t");
 		pthread_mutex_lock(&state.motor_command_msg_mutex);
-		state.motor_command_msg.motor_left_speed  = MTR_SPD;
-		state.motor_command_msg.motor_right_speed = -MTR_SPD;
+		state.motor_command_msg.motor_left_speed  = MTR_SPD_L;
+		state.motor_command_msg.motor_right_speed = -MTR_SPD_R;
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
 		while (1) {
+			std::cout << "blah2: " << TICK_TURN + state.initial_tick << std::endl;
 			pthread_mutex_lock(&state.tick_mutex);
 			if (state.tick > TICK_TURN + state.initial_tick) {
 				pthread_mutex_unlock(&state.tick_mutex);
@@ -284,10 +346,11 @@ int main(int argc, char *argv[])
 		// go forward 3 feet
 		printf("forward3\t");
 		pthread_mutex_lock(&state.motor_command_msg_mutex);
-		state.motor_command_msg.motor_left_speed  = MTR_SPD;
-		state.motor_command_msg.motor_right_speed = MTR_SPD;
+		state.motor_command_msg.motor_left_speed  = MTR_SPD_L;
+		state.motor_command_msg.motor_right_speed = MTR_SPD_R;
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
 		while (1) {
+			std::cout << "blah3: " << TICK_3_FEET + state.initial_tick << std::endl;
 			pthread_mutex_lock(&state.tick_mutex);
 			if (state.tick > TICK_3_FEET + state.initial_tick) {
 				pthread_mutex_unlock(&state.tick_mutex);
@@ -312,10 +375,11 @@ int main(int argc, char *argv[])
 		// turn
 		printf("turning\n");
 		pthread_mutex_lock(&state.motor_command_msg_mutex);
-		state.motor_command_msg.motor_left_speed  = MTR_SPD;
-		state.motor_command_msg.motor_right_speed = -MTR_SPD;
+		state.motor_command_msg.motor_left_speed  = MTR_SPD_L;
+		state.motor_command_msg.motor_right_speed = -MTR_SPD_R;
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
 		while (1) {
+			std::cout << "blah4: " << TICK_TURN + state.initial_tick << std::endl;
 			pthread_mutex_lock(&state.tick_mutex);
 			if (state.tick > TICK_TURN + state.initial_tick) {
 				pthread_mutex_unlock(&state.tick_mutex);
@@ -328,8 +392,8 @@ int main(int argc, char *argv[])
 	}
 
 	printf("done\n");
+	state.isrc->stop(state.isrc);
 	state.isrc->close(state.isrc);
 	lcm_destroy(state.lcm);
-	serial_close(state.dev);
 	return 0;
 }
