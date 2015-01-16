@@ -19,7 +19,9 @@
 #include "math/math_util.h"
 
 #define NUM_SERVOS 6
-#define ANGLE_15d 0.262
+#define ERROR_MARGIN 0.1
+#define ANGLE_MAX_TO 0.6
+#define ANGLE_MIN_TO -0.6
 
 typedef struct state state_t;
 struct state
@@ -75,7 +77,7 @@ status_loop (void *data)
     return NULL;
 }
 
-double cmd_pos[NUM_SERVOS] = {ANGLE_15d + 0.1, 0.0, 0.0, 0.0, 0.0, 0.0};
+double cmd_pos[NUM_SERVOS] = {ANGLE_MAX_TO + ERROR_MARGIN, 0.0, 0.0, 0.0, 0.0, 0.0};
 
 void *
 command_loop (void *user)
@@ -131,26 +133,27 @@ decision_loop (void *user)
 
     while (1) {
 
+	
 	for (int j=0; j<NUM_SERVOS; j++)
 	{
 	   if (j == selected_servo)
            {
 		if (direction)
 		{
-			if (cur_pos[selected_servo] >= ANGLE_15d)
+			if (cur_pos[j] >= ANGLE_MAX_TO)
 			{
 				direction = 0;
-				cmd_pos[selected_servo] = -0.1;
+				cmd_pos[j] = ANGLE_MIN_TO - ERROR_MARGIN;
 			}
 		}
 		else
 		{
-			if (cur_pos[selected_servo] <= 0.0)
+			if (cur_pos[j] <= ANGLE_MIN_TO)
 			{
 				direction = 1;
-				cmd_pos[selected_servo] = 0.0;
+				cmd_pos[j] = 0.0;
 				selected_servo = (selected_servo + 1) % NUM_SERVOS;
-				cmd_pos[selected_servo] = ANGLE_15d + 0.1;
+				cmd_pos[selected_servo] = ANGLE_MAX_TO + ERROR_MARGIN;
 			}
 		}
 	   }
