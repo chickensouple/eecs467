@@ -19,6 +19,7 @@
 #include "math/math_util.h"
 
 #define NUM_SERVOS 6
+#define ANGLE_15d 0.262
 
 typedef struct state state_t;
 struct state
@@ -32,8 +33,10 @@ struct state
 
     pthread_t status_thread;
     pthread_t command_thread;
+    pthread_t decision_thread;
 };
 
+double cur_pos[NUM_SERVOS];
 
 static void
 status_handler (const lcm_recv_buf_t *rbuf,
@@ -41,12 +44,12 @@ status_handler (const lcm_recv_buf_t *rbuf,
                 const dynamixel_status_list_t *msg,
                 void *user)
 {
-    // Print out servo positions
+    //store current servo positions in global array "cur_pos"
     for (int id = 0; id < msg->len; id++) {
         dynamixel_status_t stat = msg->statuses[id];
-        printf ("[id %d]=%6.3f ",id, stat.position_radians);
+        cur_pos[id] = stat.position_radians;
     }
-    printf ("\n");
+    //printf ("\n");
 }
 
 void *
@@ -72,6 +75,8 @@ status_loop (void *data)
     return NULL;
 }
 
+double cmd_pos[NUM_SERVOS] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+
 void *
 command_loop (void *user)
 {
@@ -95,9 +100,10 @@ command_loop (void *user)
             else {
                 // home servos slowly
                 cmds.commands[id].utime = utime_now ();
-                cmds.commands[id].position_radians = 0.0;
+		cmds.commands[id].position_radians = cmd_pos[id];
+	//cmds.commands[id].position_radians = 0.0;
                 cmds.commands[id].speed = 0.05;
-                cmds.commands[id].max_torque = 0.35;
+                cmds.commands[id].max_torque = 0.5;
             }
         }
         dynamixel_command_list_t_publish (state->lcm, state->command_channel, &cmds);
@@ -106,6 +112,57 @@ command_loop (void *user)
     }
 
     free (cmds.commands);
+
+    return NULL;
+}
+
+static int sign(double a)
+{
+	return a >= 0 ? 1 : -1;
+}
+
+void *
+decision_loop (void *user)
+{
+    const int hz = 100;
+
+    int selected_servo = 0;
+    int direction = 1;
+
+    while (1) {
+
+	for (int j=0; j<NUM_SERVOS; j++)
+	{
+	   if (j == selected_servo)
+           {
+		if (direction)
+		{
+			if (cur_pos[selected_servo] >= ANGLE_15d)
+			{
+				direction = 0;
+				cmd_pos[selected_servo] = -0.1;
+			}
+		}
+		else
+		{
+			if (cur_pos[selected_servo] <= 0.0)
+			{
+				direction = 1;
+				cmd_pos[selected_servo] = 0.0;
+				selected_servo = (selected_servo + 1) % NUM_SERVOS;
+				cmd_pos[selected_servo] = ANGLE_15d + 0.1;
+			}
+		}
+	   }
+	   else
+	   {
+		cmd_pos[j] = 0.0;
+           }
+
+	}
+
+        usleep (1000000/hz);
+    }
 
     return NULL;
 }
@@ -135,10 +192,12 @@ main (int argc, char *argv[])
 
     pthread_create (&state->status_thread, NULL, status_loop, state);
     pthread_create (&state->command_thread, NULL, command_loop, state);
+    pthread_create (&state->decision_thread, NULL, decision_loop, state);
 
     // Probably not needed, given how this operates
     pthread_join (state->status_thread, NULL);
     pthread_join (state->command_thread, NULL);
+    pthread_join (state->decision_thread, NULL);
 
     lcm_destroy (state->lcm);
     free (state);
