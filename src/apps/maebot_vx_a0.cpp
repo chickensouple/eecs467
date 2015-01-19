@@ -38,6 +38,7 @@ typedef struct
 	double odo_x_curr, odo_y_curr, odo_heading_curr;
 	int odo_left_tick, odo_right_tick;
 	std::vector<float> odo_points;
+	pthread_mutex_t odo_points_mutex;
 
 	int running;
 
@@ -88,7 +89,6 @@ static void motor_feedback_handler(const lcm_recv_buf_t *rbuf,
 		return;
 	}
 
-
 	double deltaLeft = msg->encoder_left_ticks - state->odo_left_tick;
 	double deltaRight = msg->encoder_right_ticks - state->odo_right_tick;
 	state->odo_left_tick = msg->encoder_left_ticks;
@@ -103,46 +103,27 @@ static void motor_feedback_handler(const lcm_recv_buf_t *rbuf,
 	state->odo_x_curr += distance * cos(state->odo_heading_curr + alpha);
 	state->odo_y_curr += distance * sin(state->odo_heading_curr + alpha);
 	state->odo_heading_curr += theta;
-	// printf("%lf,\t%lf\n", theta, state->odo_heading_curr);
-	printf("%lf,\t%lf\n", state->odo_x_curr, state->odo_y_curr);
 
-
+	pthread_mutex_lock(&state->odo_points_mutex);
 	state->odo_points.push_back(state->odo_x_curr);
 	state->odo_points.push_back(state->odo_y_curr);
 	state->odo_points.push_back(0);
-	int npoints = state->odo_points.size();
-	vx_resc_t *verts = vx_resc_copyf((state->odo_points).data(), npoints);
-	vx_buffer_add_back(vx_world_get_buffer(state->world,"test"), vxo_lines(verts, npoints, GL_LINES, vxo_points_style(vx_red, 2.0f)));
-	vx_buffer_swap(vx_world_get_buffer(state->world,"test"));
+	pthread_mutex_unlock(&state->odo_points_mutex);
 }
 
-
-static void draw(state_t * state, vx_world_t * world)
-{
-
-	if (1) {
-		vx_object_t *vt = vxo_text_create(VXO_TEXT_ANCHOR_TOP_RIGHT, "<<right,#0000ff>>Heads Up!\n");
-		vx_buffer_t *vb = vx_world_get_buffer(world, "text");
-		vx_buffer_add_back(vb, vxo_pix_coords(VX_ORIGIN_TOP_RIGHT,vt));
-		vx_buffer_swap(vb);
+void* draw_thread(void*) {
+	while (1) {
+		printf("drawing\n");
+		pthread_mutex_lock(&state->odo_points_mutex);
+		int vec_size = state->odo_points.size();
+		vx_resc_t *verts = vx_resc_copyf((state->odo_points).data(), vec_size);
+		pthread_mutex_unlock(&state->odo_points_mutex);
+		vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"), vxo_lines(verts, vec_size / 3, GL_LINES, vxo_lines_style(vx_red, 2.0f)));
+		vx_buffer_swap(vx_world_get_buffer(state->world,"draw_thread"));
+		usleep(1000);
 	}
 
-	// Draw a texture
-	if (state->img != NULL){
-		image_u32_t * img = state->img;
-		vx_object_t * o3 = vxo_image_texflags(vx_resc_copyui(img->buf, img->stride*img->height),
-			img->width, img->height, img->stride,
-			GL_RGBA, VXO_IMAGE_FLIPY,
-			VX_TEX_MIN_FILTER | VX_TEX_MAG_FILTER);
-
-		// pack the image into the unit square
-		vx_buffer_t * vb = vx_world_get_buffer(world, "texture");
-		vx_buffer_add_back(vb,vxo_chain(
-			vxo_mat_scale(1.0/img->height),
-			vxo_mat_translate3(0, - img->height, 0),
-					o3));
-		vx_buffer_swap(vb);
-	}
+	return NULL;
 }
 
 static void display_finished(vx_application_t * app, vx_display_t * disp)
@@ -209,6 +190,11 @@ static state_t * state_create()
 		exit(1);
 	}
 
+	if (pthread_mutex_init(&state->odo_points_mutex, NULL)) {
+		printf("odo points mutex init failed\n");
+		exit(1);
+	}
+
 	state->first_odo = true;
 	state->odo_y_curr = 0;
 	state->odo_x_curr = 0;
@@ -222,51 +208,6 @@ static state_t * state_create()
 	return state;
 }
 
-
-void * render_loop(void * data)
-{
-	state_t * state = (state_t *) data;
-	int i = 1;
-	while(state->running) {
-
-		usleep(2500);
-	if(i==250){
-		i=-250;
-	}
-
-	vx_object_t *left_comm= vxo_chain(  vxo_mat_translate3((i/10)*0.5, 0, 0),
-									vxo_mat_rotate_z(M_PI/2.0),
-									vxo_mat_scale2(5,i/10), 
-									vxo_rect(vxo_mesh_style(vx_blue)) );
-	vx_object_t *right_comm= vxo_chain(  vxo_mat_translate3((i/10)*0.5, 10, 0),
-									vxo_mat_rotate_z(M_PI/2.0),
-									vxo_mat_scale2(5,i/10), 
-									vxo_rect(vxo_mesh_style(vx_red)) );
-	 vx_object_t *left_tick= vxo_chain(  vxo_mat_translate3((i/10)*0.5, 20, 0),
-									vxo_mat_rotate_z(M_PI/2.0),
-									vxo_mat_scale2(5,i/10), 
-									vxo_rect(vxo_mesh_style(vx_orange)) );
-	  vx_object_t *right_tick= vxo_chain(  vxo_mat_translate3((i/10)*0.5, 30, 0),
-									vxo_mat_rotate_z(M_PI/2.0),
-									vxo_mat_scale2(5,i/10), 
-									vxo_rect(vxo_mesh_style(vx_green)) );
-	   vx_object_t *imu= vxo_chain(  vxo_mat_translate3((i/10)*0.5, 40, 0),
-									vxo_mat_rotate_z(M_PI/2.0),
-									vxo_mat_scale2(5,i/10), 
-									vxo_rect(vxo_mesh_style(vx_purple)) );
-	vx_buffer_add_back(vx_world_get_buffer(state->world,"test"),left_comm);
-	vx_buffer_add_back(vx_world_get_buffer(state->world,"test"),right_comm);
-	 vx_buffer_add_back(vx_world_get_buffer(state->world,"test"),right_tick);
-	  vx_buffer_add_back(vx_world_get_buffer(state->world,"test"),left_tick);
-	   vx_buffer_add_back(vx_world_get_buffer(state->world,"test"),imu);
-	vx_buffer_swap(vx_world_get_buffer(state->world,"test"));
-
-	++i;
-	}
-
-	return NULL;
-}
-
 int main(int argc, char ** argv)
 {
 	vx_global_init(); // Call this to initialize the vx-wide lock. Required to start the GL thread or to use the program library
@@ -276,6 +217,8 @@ int main(int argc, char ** argv)
 	// draw(state, state->world);
 
 	// pthread_create(&state->animate_thread, NULL, render_loop, state);
+	pthread_t draw_thread_pid;
+	pthread_create(&draw_thread_pid, NULL, draw_thread, NULL);
 
 	pthread_t lcm_handle_thread_pid;
 	pthread_create(&lcm_handle_thread_pid, NULL, lcm_handle_thread, NULL);
@@ -315,9 +258,6 @@ int main(int argc, char ** argv)
 	gdk_threads_leave ();
 
 	vx_gtk_display_source_destroy(appwrap);
-
-
-	pthread_join(state->animate_thread, NULL);
 
 	state_destroy(state);
 	vx_global_destroy();
