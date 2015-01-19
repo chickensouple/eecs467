@@ -59,6 +59,8 @@ my_gdkpixbufdestroy (guchar *pixels, gpointer data)
     free (pixels);
 }
 
+int capture_req = 0;
+
 gint
 callback_func (GtkWidget *widget, GdkEventKey *event, gpointer callback_data)
 {
@@ -77,6 +79,24 @@ callback_func (GtkWidget *widget, GdkEventKey *event, gpointer callback_data)
             pthread_mutex_unlock(&state->mutex);
             break;
         }
+
+	case GDK_KEY_s:
+	case GDK_KEY_S: {
+capture_req = 1;
+		/*image_source_data_t isdata;
+        	image_u8x3_t *im = NULL;
+        	int res = isrc->get_frame(isrc, &isdata);
+		if (!res)
+		{
+		    im = image_convert_u8x3(&isdata);
+		    uint32_t temp_time = (unsigned)time(NULL);
+printf("%d\n", temp_time);
+		    res = image_u8x3_write_pnm(im, "../ceiling_cam/capture.ppm");
+		}
+		if (res)
+            	    goto error;*/
+	    break;	
+	}
 
         case GDK_KEY_r:
         case GDK_KEY_R: {
@@ -110,6 +130,16 @@ runthread (void *_p)
         int res = isrc->get_frame(isrc, &isdata);
         if (!res) {
             im = image_convert_u8x3(&isdata);
+
+if (capture_req)
+{
+	uint32_t temp_time = (unsigned)time(NULL);
+	printf("%d\n", temp_time);
+	//char * path = "../ceiling_cam/capture.ppm";
+	res = image_u8x3_write_pnm(im, "capture.ppm");
+	printf("res: %d\n", res);	
+	capture_req = 0;
+}
 
             if (state->record_islog) {
                 write_u64(state->record_islog, 0x17923349ab10ea9aUL);
