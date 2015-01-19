@@ -27,7 +27,7 @@
 #include "lcmtypes/maebot_sensor_data_t.h"
 
 #define BASE_LENGTH 0.08 // meters
-#define METERS_PER_TICK 0.002083333333 // meters
+#define METERS_PER_TICK 0.00020944 // meters
 #define ADC_PER_METER_PER_SECOND_PER_SECOND 1670.13251784
 #define ADC_PER_RADIANS_PER_SECOND 7505.74711621
 
@@ -90,7 +90,7 @@ static void sensor_data_handler(const lcm_recv_buf_t* rbuf,
 	double accel_y = msg->accel[1];
 	double yaw_rate = msg->gyro[2];
 
-	double delta_time = (double)(msg->utime - state->imu_utime_last) / 10e5f; // somehow its 10e5? weird
+	double delta_time = (double)(msg->utime - state->imu_utime_last) / 1e6;
 	state->imu_utime_last = msg->utime;
 
 	accel_x /= ADC_PER_METER_PER_SECOND_PER_SECOND;
@@ -107,8 +107,6 @@ static void sensor_data_handler(const lcm_recv_buf_t* rbuf,
 	state->imu_pos_x_curr += dist * cos(state->imu_heading_curr + alpha);
 	state->imu_pos_y_curr += dist * sin(state->imu_heading_curr + alpha);
 	state->imu_heading_curr += theta;
-
-	// printf("%lf,\t%lf,\t%lf\n", state->imu_pos_x_curr, state->imu_pos_y_curr, state->imu_heading_curr);
 
 	pthread_mutex_lock(&state->imu_points_mutex);
 	state->imu_points.push_back(state->imu_pos_x_curr);
@@ -141,8 +139,6 @@ static void motor_feedback_handler(const lcm_recv_buf_t *rbuf,
 
 	deltaLeft *= METERS_PER_TICK;
 	deltaRight *= METERS_PER_TICK;
-	// if (fabs(deltaRight - deltaLeft) <  )
-	printf("%lf\n", deltaRight - deltaLeft);
 
 	double distance = (deltaRight + deltaLeft) / 2;
 	double theta = (deltaRight - deltaLeft) / BASE_LENGTH;
