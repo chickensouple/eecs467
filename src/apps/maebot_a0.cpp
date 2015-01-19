@@ -64,19 +64,14 @@ void* diff_drive_thread(void* arg)
 	uint64_t utime_end;
 	while(1) {
 		utime_start = utime_now();
-		// std::cout << "diff drive 1" << std::endl;
 		pthread_mutex_lock(&state.motor_command_msg_mutex);
-		// std::cout << "diff drive 2" << std::endl;
 		maebot_motor_command_t_publish(state.lcm, "MAEBOT_MOTOR_COMMAND", &state.motor_command_msg);
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
-		// std::cout << "diff drive 3" << std::endl;
 		utime_end = utime_now();
-		// std::cout << CMD_PRD - (utime_end - utime_start) << std::endl;
 
 		if (CMD_PRD > (utime_end - utime_start)) {
 			usleep(CMD_PRD - (utime_end - utime_start));
 		}
-		// std::cout << "diff drive 4" << std::endl;
 	}
 
 	return NULL;
@@ -88,14 +83,12 @@ static void motor_feedback_handler(const lcm_recv_buf_t *rbuf,
 {
 	pthread_mutex_lock(&state.tick_mutex);
 	state.tick = motor_command_msg->encoder_left_ticks;
-	std::cout << "tick: " << state.tick << std::endl;
 	pthread_mutex_unlock(&state.tick_mutex);
 }
 
 static void laser_data_handler(const lcm_recv_buf_t *rbuf,
 	const char *channel,
 	const maebot_laser_scan_t *msg, void *user) {
-	std::cout << "laser" << std::endl;
 
 	pthread_mutex_lock(&state.lidar_mutex);
 	if (!state.lidar_scan) {
@@ -127,7 +120,6 @@ static void laser_data_handler(const lcm_recv_buf_t *rbuf,
 
 void* lcm_handle_thread(void* arg) {
 	while(1) {
-		std::cout << "handling" << std::endl;
 		pthread_mutex_lock(&state.motor_command_msg_mutex);
 		lcm_handle(state.lcm);
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
@@ -284,7 +276,6 @@ int main(int argc, char *argv[])
 		// check initial check
 		while (1) {
 			pthread_mutex_lock(&state.tick_mutex);
-			std::cout << "initial check: " << state.tick << std::endl;
 			if (state.tick != -60000) {
 				pthread_mutex_unlock(&state.tick_mutex);
 				break;
@@ -302,7 +293,6 @@ int main(int argc, char *argv[])
 		state.motor_command_msg.motor_right_speed = MTR_SPD_R;
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
 		while (1) {
-			std::cout << "blah1: " << TICK_2_FEET + state.initial_tick << std::endl;
 			pthread_mutex_lock(&state.tick_mutex);
 			if (state.tick > TICK_2_FEET + state.initial_tick) {
 				pthread_mutex_unlock(&state.tick_mutex);
@@ -332,7 +322,6 @@ int main(int argc, char *argv[])
 		state.motor_command_msg.motor_right_speed = -MTR_SPD_R;
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
 		while (1) {
-			std::cout << "blah2: " << TICK_TURN + state.initial_tick << std::endl;
 			pthread_mutex_lock(&state.tick_mutex);
 			if (state.tick > TICK_TURN + state.initial_tick) {
 				pthread_mutex_unlock(&state.tick_mutex);
@@ -350,7 +339,6 @@ int main(int argc, char *argv[])
 		state.motor_command_msg.motor_right_speed = MTR_SPD_R;
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
 		while (1) {
-			std::cout << "blah3: " << TICK_3_FEET + state.initial_tick << std::endl;
 			pthread_mutex_lock(&state.tick_mutex);
 			if (state.tick > TICK_3_FEET + state.initial_tick) {
 				pthread_mutex_unlock(&state.tick_mutex);
@@ -379,7 +367,6 @@ int main(int argc, char *argv[])
 		state.motor_command_msg.motor_right_speed = -MTR_SPD_R;
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
 		while (1) {
-			std::cout << "blah4: " << TICK_TURN + state.initial_tick << std::endl;
 			pthread_mutex_lock(&state.tick_mutex);
 			if (state.tick > TICK_TURN + state.initial_tick) {
 				pthread_mutex_unlock(&state.tick_mutex);
