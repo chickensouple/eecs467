@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
@@ -80,23 +81,12 @@ callback_func (GtkWidget *widget, GdkEventKey *event, gpointer callback_data)
             break;
         }
 
-	case GDK_KEY_s:
-	case GDK_KEY_S: {
-capture_req = 1;
-		/*image_source_data_t isdata;
-        	image_u8x3_t *im = NULL;
-        	int res = isrc->get_frame(isrc, &isdata);
-		if (!res)
-		{
-		    im = image_convert_u8x3(&isdata);
-		    uint32_t temp_time = (unsigned)time(NULL);
-printf("%d\n", temp_time);
-		    res = image_u8x3_write_pnm(im, "../ceiling_cam/capture.ppm");
+		//if S key press, save image to file
+		case GDK_KEY_s:
+		case GDK_KEY_S: {
+			capture_req = 1;
+			break;	
 		}
-		if (res)
-            	    goto error;*/
-	    break;	
-	}
 
         case GDK_KEY_r:
         case GDK_KEY_R: {
@@ -131,15 +121,20 @@ runthread (void *_p)
         if (!res) {
             im = image_convert_u8x3(&isdata);
 
-if (capture_req)
-{
-	uint32_t temp_time = (unsigned)time(NULL);
-	printf("%d\n", temp_time);
-	//char * path = "../ceiling_cam/capture.ppm";
-	res = image_u8x3_write_pnm(im, "capture.ppm");
-	printf("res: %d\n", res);	
-	capture_req = 0;
-}
+			//if input was detected on s key, capture request will be 1
+			//save a timestamped image to eecs467/ceiling_cam/
+			if (capture_req)
+			{
+				int32_t temp_time = (unsigned)time(NULL);
+				char time_str[20];
+				sprintf(time_str, "%d", temp_time);
+				char path[100] = "./ceiling_cam/capture_";
+				strcat(path, time_str);
+				strcat(path, ".ppm");
+				res = image_u8x3_write_pnm(im, path);
+				printf("wrote cam capture to file %s\n", path);	
+				capture_req = 0;
+			}
 
             if (state->record_islog) {
                 write_u64(state->record_islog, 0x17923349ab10ea9aUL);
