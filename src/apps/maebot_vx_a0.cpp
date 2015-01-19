@@ -18,15 +18,18 @@
 #include "vx/vxo_drawables.h"
 
 #include "common/getopt.h"
+#include "common/timestamp.h"
+#include "common/timestamp.h"
 #include "imagesource/image_u32.h"
 #include "imagesource/image_util.h"
-
 #include "lcmtypes/maebot_motor_feedback_t.h"
 #include "lcmtypes/maebot_a0_sensor_data_t.h"
 #include "lcmtypes/maebot_sensor_data_t.h"
 
 #define BASE_LENGTH 0.08 // meters
 #define METERS_PER_TICK 0.002083333333 // meters
+#define ADC_PER_METER_PER_SECOND_PER_SECOND 1670.13251784
+#define ADC_PER_RADIANS_PER_SECOND 7505.74711621
 
 typedef struct
 {
@@ -39,6 +42,14 @@ typedef struct
 	int odo_left_tick, odo_right_tick;
 	std::vector<float> odo_points;
 	pthread_mutex_t odo_points_mutex;
+
+	bool imu_first;
+	double imu_vel_x_curr, imu_vel_y_curr;
+	double imu_pos_x_curr, imu_pos_y_curr;
+	double imu_heading_curr; // radians
+	uint64_t imu_utime_last;
+	std::vector<float> imu_points;
+	pthread_mutex_t imu_points_mutex;
 
 	int running;
 
@@ -69,7 +80,41 @@ void* lcm_handle_thread(void* arg) {
 static void sensor_data_handler(const lcm_recv_buf_t* rbuf,
 	const char* channel,
 	const maebot_sensor_data_t *msg, void* user) {
+	if (state->imu_first) {
+		state->imu_utime_last = msg->utime;
+		state->imu_first = false;
+		return;
+	}
 
+	double accel_x = msg->accel[0];
+	double accel_y = msg->accel[1];
+	double yaw_rate = msg->gyro[2];
+
+	double delta_time = (double)(msg->utime - state->imu_utime_last) / 10e5f; // somehow its 10e5? weird
+	state->imu_utime_last = msg->utime;
+
+	accel_x /= ADC_PER_METER_PER_SECOND_PER_SECOND;
+	accel_y /= ADC_PER_METER_PER_SECOND_PER_SECOND;
+	yaw_rate /= ADC_PER_RADIANS_PER_SECOND;
+
+	state->imu_vel_x_curr += delta_time * accel_x;
+	state->imu_vel_y_curr += delta_time * accel_y;
+	double dist_x = delta_time * state->imu_vel_x_curr;
+	double dist_y = delta_time * state->imu_vel_y_curr;
+	double dist = sqrt(dist_x * dist_x + dist_y * dist_y);
+	double theta = delta_time * yaw_rate;
+	double alpha = theta / 2;
+	state->imu_pos_x_curr += dist * cos(state->imu_heading_curr + alpha);
+	state->imu_pos_y_curr += dist * sin(state->imu_heading_curr + alpha);
+	state->imu_heading_curr += theta;
+
+	// printf("%lf,\t%lf,\t%lf\n", state->imu_pos_x_curr, state->imu_pos_y_curr, state->imu_heading_curr);
+
+	pthread_mutex_lock(&state->imu_points_mutex);
+	state->imu_points.push_back(state->imu_pos_x_curr);
+	state->imu_points.push_back(state->imu_pos_y_curr);
+	state->imu_points.push_back(0);
+	pthread_mutex_unlock(&state->imu_points_mutex);
 }
 
 static void a0_sensor_data_handler(const lcm_recv_buf_t* rbuf,
@@ -96,6 +141,8 @@ static void motor_feedback_handler(const lcm_recv_buf_t *rbuf,
 
 	deltaLeft *= METERS_PER_TICK;
 	deltaRight *= METERS_PER_TICK;
+	// if (fabs(deltaRight - deltaLeft) <  )
+	printf("%lf\n", deltaRight - deltaLeft);
 
 	double distance = (deltaRight + deltaLeft) / 2;
 	double theta = (deltaRight - deltaLeft) / BASE_LENGTH;
@@ -113,12 +160,18 @@ static void motor_feedback_handler(const lcm_recv_buf_t *rbuf,
 
 void* draw_thread(void*) {
 	while (1) {
-		printf("drawing\n");
 		pthread_mutex_lock(&state->odo_points_mutex);
 		int vec_size = state->odo_points.size();
 		vx_resc_t *verts = vx_resc_copyf((state->odo_points).data(), vec_size);
 		pthread_mutex_unlock(&state->odo_points_mutex);
 		vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"), vxo_lines(verts, vec_size / 3, GL_LINES, vxo_lines_style(vx_red, 2.0f)));
+
+		pthread_mutex_lock(&state->imu_points_mutex);
+		vec_size = state->imu_points.size();
+		verts = vx_resc_copyf((state->imu_points).data(), vec_size);
+		pthread_mutex_unlock(&state->imu_points_mutex);
+		vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"), vxo_lines(verts, vec_size / 3, GL_LINES, vxo_lines_style(vx_blue, 2.0f)));
+
 		vx_buffer_swap(vx_world_get_buffer(state->world,"draw_thread"));
 		usleep(1000);
 	}
@@ -195,10 +248,25 @@ static state_t * state_create()
 		exit(1);
 	}
 
+	if (pthread_mutex_init(&state->imu_points_mutex, NULL)) {
+		printf("imu points mutex init failed\n");
+		exit(1);
+	}
+
 	state->first_odo = true;
 	state->odo_y_curr = 0;
 	state->odo_x_curr = 0;
 	state->odo_heading_curr = 0;
+	state->odo_left_tick = 0;
+	state->odo_right_tick = 0;
+
+	state->imu_first = true;
+	state->imu_vel_x_curr = 0;
+	state->imu_vel_y_curr = 0;
+	state->imu_pos_x_curr = 0;
+	state->imu_pos_y_curr = 0;
+	state->imu_heading_curr = 0;
+	state->imu_utime_last = 0;
 
 	state->world = vx_world_create();
 	state->layers = zhash_create(sizeof(vx_display_t*), sizeof(vx_layer_t*), zhash_ptr_hash, zhash_ptr_equals);
@@ -214,9 +282,6 @@ int main(int argc, char ** argv)
 
 	state = state_create();
 
-	// draw(state, state->world);
-
-	// pthread_create(&state->animate_thread, NULL, render_loop, state);
 	pthread_t draw_thread_pid;
 	pthread_create(&draw_thread_pid, NULL, draw_thread, NULL);
 
