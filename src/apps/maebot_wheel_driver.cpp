@@ -21,6 +21,8 @@ struct state_t {
 	pthread_t lcm_thread;
 	pthread_mutex_t lcm_mutex;
 
+	pthread_t diff_drive_thread;
+
 	// wheel driver
 	pthread_mutex_t wheel_driver_mutex;
 
@@ -38,6 +40,8 @@ static void motorDriverCommandHandler(const lcm_recv_buf_t* rbuf,
 	const maebot_motor_driver_command_t* msg, void* user);
 
 void* lcmHandleThread(void* arg);
+
+void* diffDriveThread(void* arg);
 
 class WheelDriver {
 public:
@@ -98,7 +102,7 @@ public:
 		int32_t deltaTickLeft = tickLeft - _tickLeft;
 		int32_t deltaTickRight = tickRight - _tickRight;
 		int64_t deltaTime = utime - _utime;
-		tickLeft = tickLeft;
+		_tickLeft = tickLeft;
 		_tickRight = tickRight;
 		_utime = utime;
 
@@ -109,18 +113,23 @@ public:
 		double leftSpeed = deltaTickLeftMeters / deltaTimeSeconds;
 		double rightSpeed = deltaTickRightMeters / deltaTimeSeconds;
 
-		_msgSpeedLeft += (_cmdSpeedLeft - leftSpeed) * _Kp;
-		_msgSpeedRight += (_cmdSpeedRight - rightSpeed) * _Kp;
+		double leftError = (_cmdSpeedLeft - leftSpeed);
+		double rightError = (_cmdSpeedRight - rightSpeed);
+
+		printf("error: %lf\t%lf\n", leftError, rightError);
+
+		_msgSpeedLeft += leftError * _Kp;
+		_msgSpeedRight += rightError * _Kp;
 
 		if (_msgSpeedLeft > 1) _msgSpeedLeft = 1;
-		if (_msgSpeedLeft < 0) _msgSpeedLeft = 0;
+		if (_msgSpeedLeft < -1) _msgSpeedLeft = -1;
 		if (_msgSpeedRight > 1) _msgSpeedRight = 1;
-		if (_msgSpeedRight < 0) _msgSpeedRight = 0;
+		if (_msgSpeedRight < -1) _msgSpeedRight = 1;
 		_issuedCommand = false;
 	}
 };
 
-WheelDriver driver;
+WheelDriver driver(0.08);
 
 int main() {
 	state.lcm = lcm_create(NULL);
@@ -144,7 +153,10 @@ int main() {
 		printf("wheel driver mutex init failed\n");
 		exit(1);
 	}
+
 	pthread_create(&state.lcm_thread, NULL, lcmHandleThread, NULL);
+	pthread_create(&state.diff_drive_thread, NULL, diffDriveThread, NULL);
+	while(1);
 }
 
 static void motorFeedbackHandler(const lcm_recv_buf_t* rbuf,
@@ -165,7 +177,7 @@ static void motorFeedbackHandler(const lcm_recv_buf_t* rbuf,
 void* lcmHandleThread(void* arg) {
 	while(1) {
 		pthread_mutex_lock(&state.lcm_mutex);
-		lcm_handle(state.lcm);
+		lcm_handle_timeout(state.lcm, 1000 / 15);
 		pthread_mutex_unlock(&state.lcm_mutex);
 	}
 	return NULL;
@@ -179,13 +191,14 @@ void* diffDriveThread(void* arg) {
 		pthread_mutex_lock(&state.wheel_driver_mutex);
 		state.motor_command_msg.motor_left_speed = driver.getMsgSpeedLeft();
 		state.motor_command_msg.motor_right_speed = driver.getMsgSpeedRight();
+		printf("cmd: %f, %f\n", state.motor_command_msg.motor_left_speed, state.motor_command_msg.motor_right_speed);
 		pthread_mutex_unlock(&state.wheel_driver_mutex);
 
-		pthread_mutex_lock(&state.lcm_mutex);
+		// pthread_mutex_lock(&state.lcm_mutex);
 		maebot_motor_command_t_publish(state.lcm, "MAEBOT_MOTOR_COMMAND", &state.motor_command_msg);
-		pthread_mutex_unlock(&state.lcm_mutex);
+		// pthread_mutex_unlock(&state.lcm_mutex);
+		driver.issueCommand();
 		utime_end = utime_now();
-
 		if (CMD_PRD > (utime_end - utime_start)) {
 			usleep(CMD_PRD - (utime_end - utime_start));
 		}
