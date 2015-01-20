@@ -102,8 +102,7 @@ command_loop (void *user)
             else {
                 // home servos slowly
                 cmds.commands[id].utime = utime_now ();
-		cmds.commands[id].position_radians = cmd_pos[id];
-	//cmds.commands[id].position_radians = 0.0;
+				cmds.commands[id].position_radians = cmd_pos[id];
                 cmds.commands[id].speed = 0.05;
                 cmds.commands[id].max_torque = 0.5;
             }
@@ -116,11 +115,6 @@ command_loop (void *user)
     free (cmds.commands);
 
     return NULL;
-}
-
-static int sign(double a)
-{
-	return a >= 0 ? 1 : -1;
 }
 
 void *
