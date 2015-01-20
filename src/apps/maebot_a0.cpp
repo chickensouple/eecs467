@@ -15,19 +15,20 @@
 #include "imagesource/image_util.h"
 #include "imagesource/image_source.h"
 #include "imagesource/image_convert.h"
+#include "imagesource/image_u8x3.h"
 #include "lcmtypes/maebot_motor_command_t.h"
 #include "lcmtypes/maebot_motor_feedback_t.h"
-#include "lcmtypes/maebot_a0_sensor_data_t.h"
+#include "lcmtypes/maebot_a0_corner_scan_t.h"
 #include "lcmtypes/maebot_sensor_data_t.h"
 #include "lcmtypes/maebot_laser_scan_t.h"
 
 #define CMD_PRD 50000 //us  -> 20Hz
-#define MTR_SPD_L 0.25f
-#define MTR_SPD_R 0.25f
+#define MTR_SPD_L 0.27f
+#define MTR_SPD_R 0.23f
 #define MTR_STOP 0.0f
 #define TICK_2_FEET 2911
 #define TICK_3_FEET 4366
-#define TICK_TURN 300
+#define TICK_TURN 350 // 300 is calculated 90 degrees
 #define LIDAR_BUFF_SIZE 500
 
 typedef struct {
@@ -37,6 +38,7 @@ typedef struct {
 
 	// camera
 	image_source_t *isrc;
+	int camera_count;
 
 	// lidar
 	bool lidar_scan;
@@ -120,28 +122,34 @@ void* lcm_handle_thread(void* arg) {
 	return NULL;
 }
 
-// remember to destroy the image_u32_t
-image_u32_t* take_picture(void) {
+void take_picture(void) {
 	image_source_data_t isdata;
 	int res = state.isrc->get_frame(state.isrc, &isdata);
 	if (res) {
 		printf("error taking picture\n");
 		exit(1);
 	}
-	image_u32_t* im = image_convert_u32(&isdata);
+	image_u8x3_t* im = image_convert_u8x3(&isdata);
 	state.isrc->release_frame(state.isrc, &isdata);
-	return im;
+
+	char count_str[10];
+	sprintf(count_str, "%d", state.camera_count++);
+	char path[100] = "pictures/corner_image_";
+	strcat(path, count_str);
+	strcat(path, ".ppm");
+	res = image_u8x3_write_pnm(im, path);
+	if (res) {
+		printf("error saving picture\n");
+		exit(1);
+	}
+	image_u8x3_destroy(im);
 }
 
 void poll_sensors(void) {
-	maebot_a0_sensor_data_t lcm_msg;
+	maebot_a0_corner_scan_t lcm_msg;
 
 	// camera
-	image_u32_t* im = take_picture();
-	lcm_msg.height = im->height;
-	lcm_msg.buffer_size = im->height * im->stride;
-	lcm_msg.buff = (int32_t*) malloc(sizeof(int32_t) * lcm_msg.buffer_size);
-	memcpy(lcm_msg.buff, im->buf, lcm_msg.buffer_size * sizeof(int32_t));
+	take_picture();
 
 	// lidar
 	pthread_mutex_lock(&state.lidar_mutex);
@@ -171,15 +179,12 @@ void poll_sensors(void) {
 
 	pthread_mutex_unlock(&state.lidar_mutex);
 
+	maebot_a0_corner_scan_t_publish(state.lcm, "MAEBOT_A0_CORNER_SCAN", &lcm_msg);
 
-	maebot_a0_sensor_data_t_publish(state.lcm, "MAEBOT_A0_SENSOR_DATA", &lcm_msg);
-
-	free(lcm_msg.buff);
 	free(lcm_msg.lidar.ranges);
 	free(lcm_msg.lidar.thetas);
 	free(lcm_msg.lidar.times);
 	free(lcm_msg.lidar.intensities);
-	image_u32_destroy(im);
 }
 
 void init_state(void) {
@@ -216,6 +221,11 @@ void init_state(void) {
 	}
 
 	zarray_t * urls=image_source_enumerate();
+	for (int i = 0; i < zarray_size(urls); ++i) {
+		char *url;
+		zarray_get(urls, i, &url);
+		printf("%s\n", url);
+	}
 	for (int i = 0; i < zarray_size(urls); i++) {
 		char *url;
 		zarray_get(urls, i, &url);
@@ -234,6 +244,8 @@ void init_state(void) {
 
 	if (state.isrc->start(state.isrc))
 		exit(-1);
+
+	state.camera_count = 0;
 
 	state.lidar_scan = false;
 

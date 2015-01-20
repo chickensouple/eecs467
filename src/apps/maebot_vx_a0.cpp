@@ -23,7 +23,7 @@
 #include "imagesource/image_u32.h"
 #include "imagesource/image_util.h"
 #include "lcmtypes/maebot_motor_feedback_t.h"
-#include "lcmtypes/maebot_a0_sensor_data_t.h"
+#include "lcmtypes/maebot_a0_corner_scan_t.h"
 #include "lcmtypes/maebot_sensor_data_t.h"
 
 #define BASE_LENGTH 0.08 // meters
@@ -73,10 +73,7 @@ state_t * state;
 
 void* lcm_handle_thread(void* arg) {
 	while(1) {
-		pthread_mutex_lock(&state->lcm_mutex);
-		lcm_handle(state->lcm);
-		pthread_mutex_unlock(&state->lcm_mutex);
-		usleep(100);
+		lcm_handle_timeout(state->lcm, 1000 /15);
 	}
 
 	return NULL;
@@ -123,53 +120,59 @@ static void sensor_data_handler(const lcm_recv_buf_t* rbuf,
 	pthread_mutex_unlock(&state->imu_points_mutex);
 }
 
-static void a0_sensor_data_handler(const lcm_recv_buf_t* rbuf,
+static void corner_scan_handler(const lcm_recv_buf_t* rbuf,
 	const char* channel,
-	const maebot_a0_sensor_data_t *msg, void* user) {
-	printf("derp\n");
+	const maebot_a0_corner_scan_t *msg, void* user) {
 	if (state->scans_lidar.size() >= 4) {
 		return;
 	}
 
 	std::vector<float> new_lidar_scan;
-	bool outward = true;
+	// bool outward = true;
 	pthread_mutex_lock(&state->odo_curr_mutex);
 	double odo_x_curr = state->odo_x_curr;
 	double odo_y_curr = state->odo_y_curr;
 	pthread_mutex_unlock(&state->odo_curr_mutex);
 
-	printf("num ranges: %d\n", msg->lidar.num_ranges);
 	for (int i = 0; i < msg->lidar.num_ranges; ++i) {
 		float theta = msg->lidar.thetas[i];
 		float range = msg->lidar.ranges[i];
 		float new_pt_x = odo_x_curr + range * cos(theta);
 		float new_pt_y = odo_y_curr + range * sin(theta);
-		if (outward) {
-			new_lidar_scan.push_back(odo_x_curr);
-			new_lidar_scan.push_back(odo_y_curr);
-			new_lidar_scan.push_back(0);
+		new_lidar_scan.push_back(odo_x_curr);
+		new_lidar_scan.push_back(odo_y_curr);
+		new_lidar_scan.push_back(-1);
 
-			new_lidar_scan.push_back(new_pt_x);
-			new_lidar_scan.push_back(new_pt_y);
-			new_lidar_scan.push_back(0);
-		} else {
-			new_lidar_scan.push_back(new_lidar_scan.size() - 3);
-			new_lidar_scan.push_back(new_lidar_scan.size() - 2);
-			new_lidar_scan.push_back(0);
+		new_lidar_scan.push_back(new_pt_x);
+		new_lidar_scan.push_back(new_pt_y);
+		new_lidar_scan.push_back(-1);
 
-			new_lidar_scan.push_back(new_pt_x);
-			new_lidar_scan.push_back(new_pt_y);
-			new_lidar_scan.push_back(0);
+		// if (outward) {
+		// 	new_lidar_scan.push_back(odo_x_curr);
+		// 	new_lidar_scan.push_back(odo_y_curr);
+		// 	new_lidar_scan.push_back(0);
 
-			new_lidar_scan.push_back(new_pt_x);
-			new_lidar_scan.push_back(new_pt_y);
-			new_lidar_scan.push_back(0);
+		// 	new_lidar_scan.push_back(new_pt_x);
+		// 	new_lidar_scan.push_back(new_pt_y);
+		// 	new_lidar_scan.push_back(0);
+		// } else {
+		// 	new_lidar_scan.push_back(new_lidar_scan.size() - 3);
+		// 	new_lidar_scan.push_back(new_lidar_scan.size() - 2);
+		// 	new_lidar_scan.push_back(0);
 
-			new_lidar_scan.push_back(odo_x_curr);
-			new_lidar_scan.push_back(odo_y_curr);
-			new_lidar_scan.push_back(0);
-		}
-		outward = !outward;
+		// 	new_lidar_scan.push_back(new_pt_x);
+		// 	new_lidar_scan.push_back(new_pt_y);
+		// 	new_lidar_scan.push_back(0);
+
+		// 	new_lidar_scan.push_back(new_pt_x);
+		// 	new_lidar_scan.push_back(new_pt_y);
+		// 	new_lidar_scan.push_back(0);
+
+		// 	new_lidar_scan.push_back(odo_x_curr);
+		// 	new_lidar_scan.push_back(odo_y_curr);
+		// 	new_lidar_scan.push_back(0);
+		// }
+		// outward = !outward;
 	}
 
 	pthread_mutex_lock(&state->scans_mutex);
@@ -236,11 +239,10 @@ void* draw_thread(void*) {
 		// if (getopt_get_bool(state->gopt, "scans")) {
 			pthread_mutex_lock(&state->scans_mutex);
 			for (unsigned int i = 0; i < state->scans_lidar.size(); ++i) {
-				printf("DERP DERP\n");
 				vec_size = state->scans_lidar[i].size();
 				// printf("vec_size: %d\n", vec_size);
 				verts = vx_resc_copyf((state->scans_lidar[i]).data(), vec_size);
-				vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"), vxo_lines(verts, vec_size / 3, GL_LINES, vxo_lines_style(vx_blue, 2.0f)));
+				vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"), vxo_lines(verts, vec_size / 3, GL_LINES, vxo_lines_style(vx_green, 2.0f)));
 			}
 			pthread_mutex_unlock(&state->scans_mutex);
 		// }
@@ -388,9 +390,6 @@ int main(int argc, char ** argv)
 	pthread_t draw_thread_pid;
 	pthread_create(&draw_thread_pid, NULL, draw_thread, NULL);
 
-	pthread_t lcm_handle_thread_pid;
-	pthread_create(&lcm_handle_thread_pid, NULL, lcm_handle_thread, NULL);
-
 	gdk_threads_init();
 	gdk_threads_enter();
 	gtk_init(&argc, &argv);
@@ -416,13 +415,18 @@ int main(int argc, char ** argv)
 		sensor_data_handler,
 		NULL);
 
-	maebot_a0_sensor_data_t_subscribe(state->lcm,
-		"MAEBOT_A0_SENSOR_DATA",
-		a0_sensor_data_handler,
+	maebot_a0_corner_scan_t_subscribe(state->lcm,
+		"MAEBOT_A0_CORNER_SCAN",
+		corner_scan_handler,
 		NULL);
 
-	gtk_main (); // Blocks as long as GTK window is open
-	gdk_threads_leave ();
+	pthread_t lcm_handle_thread_pid;
+	pthread_create(&lcm_handle_thread_pid, NULL, lcm_handle_thread, NULL);
+
+	printf("All subscribed\n");
+
+	gtk_main(); // Blocks as long as GTK window is open
+	gdk_threads_leave();
 
 	vx_gtk_display_source_destroy(appwrap);
 

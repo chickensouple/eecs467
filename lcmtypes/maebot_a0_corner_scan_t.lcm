@@ -1,0 +1,5 @@
+struct maebot_a0_corner_scan_t
+{
+	// lidar
+	maebot_laser_scan_t lidar;
+}
