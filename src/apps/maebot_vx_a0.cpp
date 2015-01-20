@@ -38,6 +38,7 @@ typedef struct
 
 	getopt_t* gopt;
 
+	// odometry
 	bool first_odo;
 	double odo_x_curr, odo_y_curr, odo_heading_curr;
 	int odo_left_tick, odo_right_tick;
@@ -45,6 +46,7 @@ typedef struct
 	pthread_mutex_t odo_points_mutex;
 	pthread_mutex_t odo_curr_mutex;
 
+	// imu
 	bool imu_first;
 	double imu_vel_x_curr, imu_vel_y_curr;
 	double imu_pos_x_curr, imu_pos_y_curr;
@@ -53,8 +55,12 @@ typedef struct
 	std::vector<float> imu_points;
 	pthread_mutex_t imu_points_mutex;
 
+	// lidar
 	std::vector<std::vector<float>> scans_lidar;
 	pthread_mutex_t scans_mutex;
+
+	// images
+	std::vector<image_u32_t*> images;
 
 	int running;
 
@@ -141,38 +147,11 @@ static void corner_scan_handler(const lcm_recv_buf_t* rbuf,
 		float new_pt_y = odo_y_curr + range * sin(theta);
 		new_lidar_scan.push_back(odo_x_curr);
 		new_lidar_scan.push_back(odo_y_curr);
-		new_lidar_scan.push_back(-1);
+		new_lidar_scan.push_back(-0.001);
 
 		new_lidar_scan.push_back(new_pt_x);
 		new_lidar_scan.push_back(new_pt_y);
-		new_lidar_scan.push_back(-1);
-
-		// if (outward) {
-		// 	new_lidar_scan.push_back(odo_x_curr);
-		// 	new_lidar_scan.push_back(odo_y_curr);
-		// 	new_lidar_scan.push_back(0);
-
-		// 	new_lidar_scan.push_back(new_pt_x);
-		// 	new_lidar_scan.push_back(new_pt_y);
-		// 	new_lidar_scan.push_back(0);
-		// } else {
-		// 	new_lidar_scan.push_back(new_lidar_scan.size() - 3);
-		// 	new_lidar_scan.push_back(new_lidar_scan.size() - 2);
-		// 	new_lidar_scan.push_back(0);
-
-		// 	new_lidar_scan.push_back(new_pt_x);
-		// 	new_lidar_scan.push_back(new_pt_y);
-		// 	new_lidar_scan.push_back(0);
-
-		// 	new_lidar_scan.push_back(new_pt_x);
-		// 	new_lidar_scan.push_back(new_pt_y);
-		// 	new_lidar_scan.push_back(0);
-
-		// 	new_lidar_scan.push_back(odo_x_curr);
-		// 	new_lidar_scan.push_back(odo_y_curr);
-		// 	new_lidar_scan.push_back(0);
-		// }
-		// outward = !outward;
+		new_lidar_scan.push_back(-0.001);
 	}
 
 	pthread_mutex_lock(&state->scans_mutex);
@@ -222,30 +201,53 @@ static void motor_feedback_handler(const lcm_recv_buf_t *rbuf,
 
 void* draw_thread(void*) {
 	while (1) {
+		int vec_size;
+		vx_resc_t* verts;
 		// drawing odometry path
-		pthread_mutex_lock(&state->odo_points_mutex);
-		int vec_size = state->odo_points.size();
-		vx_resc_t *verts = vx_resc_copyf((state->odo_points).data(), vec_size);
-		pthread_mutex_unlock(&state->odo_points_mutex);
-		vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"), vxo_lines(verts, vec_size / 3, GL_LINES, vxo_lines_style(vx_red, 2.0f)));
+		if (getopt_get_bool(state->gopt, "paths")) {
+			pthread_mutex_lock(&state->odo_points_mutex);
+			vec_size = state->odo_points.size();
+			verts = vx_resc_copyf((state->odo_points).data(), vec_size);
+			pthread_mutex_unlock(&state->odo_points_mutex);
+			vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"),
+				vxo_lines(verts, vec_size / 3, GL_LINES, vxo_lines_style(vx_red, 2.0f)));
 
-		// drawing imu path
-		pthread_mutex_lock(&state->imu_points_mutex);
-		vec_size = state->imu_points.size();
-		verts = vx_resc_copyf((state->imu_points).data(), vec_size);
-		pthread_mutex_unlock(&state->imu_points_mutex);
-		vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"), vxo_lines(verts, vec_size / 3, GL_LINES, vxo_lines_style(vx_blue, 2.0f)));
+			// drawing imu path
+			pthread_mutex_lock(&state->imu_points_mutex);
+			vec_size = state->imu_points.size();
+			verts = vx_resc_copyf((state->imu_points).data(), vec_size);
+			pthread_mutex_unlock(&state->imu_points_mutex);
+			vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"),
+				vxo_lines(verts, vec_size / 3, GL_LINES, vxo_lines_style(vx_blue, 2.0f)));
+		}
 
-		// if (getopt_get_bool(state->gopt, "scans")) {
+		if (getopt_get_bool(state->gopt, "scans")) {
 			pthread_mutex_lock(&state->scans_mutex);
 			for (unsigned int i = 0; i < state->scans_lidar.size(); ++i) {
 				vec_size = state->scans_lidar[i].size();
 				// printf("vec_size: %d\n", vec_size);
 				verts = vx_resc_copyf((state->scans_lidar[i]).data(), vec_size);
-				vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"), vxo_lines(verts, vec_size / 3, GL_LINES, vxo_lines_style(vx_green, 2.0f)));
+				vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"),
+					vxo_lines(verts, vec_size / 3, GL_LINES,
+						vxo_lines_style(vx_green, 2.0f)));
 			}
 			pthread_mutex_unlock(&state->scans_mutex);
-		// }
+
+			for (unsigned int i = 0; i < state->images.size(); ++i) {
+				image_u32_t* image = state->images[i];
+				vx_object_t* obj = vxo_image_texflags(vx_resc_copyui(image->buf,
+					image->stride*image->height),
+					image->width, image->height, image->stride,
+					GL_RGBA, VXO_IMAGE_FLIPY,
+					VX_TEX_MIN_FILTER | VX_TEX_MAG_FILTER);
+
+				int x_loc = -2250 + (i * 1500);
+				int y_loc = -2000 - image->height;
+				vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"),
+					vxo_chain(vxo_mat_scale(1.0/image->height),
+					vxo_mat_translate3(x_loc, y_loc, 0), obj));
+			}
+		}
 
 		vx_buffer_swap(vx_world_get_buffer(state->world,"draw_thread"));
 		usleep(1000);
@@ -368,9 +370,11 @@ static state_t * state_create()
 
 	state->gopt = getopt_create();
 	getopt_add_bool(state->gopt, 's', "scans", 0, "shows scans");
+	getopt_add_bool(state->gopt, 'p', "paths", 0, "shows paths");
 
 	state->world = vx_world_create();
-	state->layers = zhash_create(sizeof(vx_display_t*), sizeof(vx_layer_t*), zhash_ptr_hash, zhash_ptr_equals);
+	state->layers = zhash_create(sizeof(vx_display_t*),
+		sizeof(vx_layer_t*), zhash_ptr_hash, zhash_ptr_equals);
 
 	pthread_mutex_init (&state->mutex, NULL);
 
@@ -385,6 +389,20 @@ int main(int argc, char ** argv)
 	if (!getopt_parse(state->gopt, argc, argv, 1)) {
 		printf("couldn't parse getopt\n");
 		exit(1);
+	}
+
+	for (int i = 0; i < 4; ++i) {
+		char count_str[10];
+		sprintf(count_str, "%d", i);
+		char path[100] = "pictures/corner_image_";
+		strcat(path, count_str);
+		strcat(path, ".ppm");
+		image_u32_t* image = image_u32_create_from_pnm(path);
+		if (image == NULL) {
+			printf("image %s unsuccesfully loaded\n", path);
+			exit(1);
+		}
+		state->images.push_back(image);
 	}
 
 	pthread_t draw_thread_pid;

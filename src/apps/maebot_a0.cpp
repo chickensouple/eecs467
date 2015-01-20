@@ -23,12 +23,12 @@
 #include "lcmtypes/maebot_laser_scan_t.h"
 
 #define CMD_PRD 50000 //us  -> 20Hz
-#define MTR_SPD_L 0.27f
-#define MTR_SPD_R 0.23f
+#define MTR_SPD_L 0.255f
+#define MTR_SPD_R 0.25f
 #define MTR_STOP 0.0f
 #define TICK_2_FEET 2911
 #define TICK_3_FEET 4366
-#define TICK_TURN 350 // 300 is calculated 90 degrees
+#define TICK_TURN 300 // 300 is calculated 90 degrees
 #define LIDAR_BUFF_SIZE 500
 
 typedef struct {
@@ -315,6 +315,7 @@ int main(int argc, char *argv[])
 		state.motor_command_msg.motor_left_speed  = MTR_STOP;
 		state.motor_command_msg.motor_right_speed = MTR_STOP;
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
+		usleep(300000);
 
 		// update initial_tick
 		state.initial_tick += TICK_2_FEET;
@@ -363,6 +364,7 @@ int main(int argc, char *argv[])
 		state.motor_command_msg.motor_left_speed  = MTR_STOP;
 		state.motor_command_msg.motor_right_speed = MTR_STOP;
 		pthread_mutex_unlock(&state.motor_command_msg_mutex);
+		usleep(300000);
 
 		// scan
 		poll_sensors();
