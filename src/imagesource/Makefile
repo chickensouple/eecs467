@@ -22,10 +22,11 @@ LIBIMAGESOURCE_OBJS = \
         pnm.o
 
 BIN_ISVIEW = $(BIN_PATH)/isview
+BIN_ISVIEW_PPM = $(BIN_PATH)/isview_ppm
 BIN_ISTEST = istest
 BIN_TCPSTREAM = tcpstream
 
-ALL = $(LIB_IMAGESOURCE) $(BIN_ISVIEW) $(BIN_ISTEST) $(BIN_TCPSTREAM)
+ALL = $(LIB_IMAGESOURCE) $(BIN_ISVIEW) $(BIN_ISTEST) $(BIN_TCPSTREAM) $(BIN_ISVIEW_PPM)
 
 all: $(ALL)
 
@@ -34,6 +35,10 @@ $(LIB_IMAGESOURCE): $(LIBIMAGESOURCE_OBJS) $(LIBDEPS)
 	@ar rc $@ $^
 
 $(BIN_ISVIEW): isview.o $(LIB_IMAGESOURCE) $(LIBDEPS)
+	@echo "\t$@"
+	@$(CC) -o $@ $^ $(LDFLAGS)
+
+$(BIN_ISVIEW_PPM): isview_ppm.o $(LIB_IMAGESOURCE) $(LIBDEPS)
 	@echo "\t$@"
 	@$(CC) -o $@ $^ $(LDFLAGS)
 
