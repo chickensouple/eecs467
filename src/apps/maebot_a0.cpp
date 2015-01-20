@@ -28,6 +28,7 @@
 #define TICK_2_FEET 2911
 #define TICK_3_FEET 4366
 #define TICK_TURN 300
+#define LIDAR_BUFF_SIZE 500
 
 typedef struct {
 	// motor command
@@ -57,7 +58,6 @@ typedef struct {
 
 state_t state; // global state
 
-int count;
 void* diff_drive_thread(void* arg)
 {
 	uint64_t utime_start;
@@ -89,7 +89,6 @@ static void motor_feedback_handler(const lcm_recv_buf_t *rbuf,
 static void laser_data_handler(const lcm_recv_buf_t *rbuf,
 	const char *channel,
 	const maebot_laser_scan_t *msg, void *user) {
-
 	pthread_mutex_lock(&state.lidar_mutex);
 	if (!state.lidar_scan) {
 		pthread_mutex_unlock(&state.lidar_mutex);
@@ -97,22 +96,14 @@ static void laser_data_handler(const lcm_recv_buf_t *rbuf,
 	}
 	pthread_mutex_unlock(&state.lidar_mutex);
 
-
 	pthread_mutex_lock(&state.lidar_mutex);
 	state.lidar_utime = msg->utime;
 	state.lidar_num_ranges = msg->num_ranges;
 
-	if (state.lidar_ranges != NULL) free(state.lidar_ranges);
-	state.lidar_ranges = (float*) malloc(sizeof(float) * state.lidar_num_ranges);
-
-	if (state.lidar_thetas != NULL) free(state.lidar_thetas);
-	state.lidar_thetas = (float*) malloc(sizeof(float) * state.lidar_num_ranges);
-
-	if (state.lidar_times != NULL) free(state.lidar_times);
-	state.lidar_times = (long int*) malloc(sizeof(long int) * state.lidar_num_ranges);
-
-	if (state.lidar_intensities != NULL) free(state.lidar_intensities);
-	state.lidar_intensities = (float*) malloc(sizeof(float) * state.lidar_num_ranges);
+	memcpy(state.lidar_ranges, msg->ranges, state.lidar_num_ranges * sizeof(float));
+	memcpy(state.lidar_thetas, msg->thetas, state.lidar_num_ranges * sizeof(float));
+	memcpy(state.lidar_times, msg->times, state.lidar_num_ranges * sizeof(int64_t));
+	memcpy(state.lidar_intensities, msg->intensities, state.lidar_num_ranges * sizeof(float));
 
 	state.lidar_scan = false;
 	pthread_mutex_unlock(&state.lidar_mutex);
@@ -177,6 +168,7 @@ void poll_sensors(void) {
 	memcpy(lcm_msg.lidar.thetas, state.lidar_thetas, state.lidar_num_ranges * sizeof(float));
 	memcpy(lcm_msg.lidar.times, state.lidar_times, state.lidar_num_ranges * sizeof(long int));
 	memcpy(lcm_msg.lidar.intensities, state.lidar_intensities, state.lidar_num_ranges * sizeof(float));
+
 	pthread_mutex_unlock(&state.lidar_mutex);
 
 
@@ -208,10 +200,14 @@ void init_state(void) {
 	}
 
 	state.lidar_num_ranges = 0;
-	state.lidar_ranges = NULL;
-	state.lidar_thetas = NULL;
-	state.lidar_times = NULL;
-	state.lidar_intensities = NULL;
+
+	state.lidar_ranges = (float*) malloc(sizeof(float) * LIDAR_BUFF_SIZE);
+
+	state.lidar_thetas = (float*) malloc(sizeof(float) * LIDAR_BUFF_SIZE);
+
+	state.lidar_times = (long int*) malloc(sizeof(long int) * LIDAR_BUFF_SIZE);
+
+	state.lidar_intensities = (float*) malloc(sizeof(float) * LIDAR_BUFF_SIZE);
 
 	state.lcm = lcm_create(NULL);
 	if (!state.lcm) {

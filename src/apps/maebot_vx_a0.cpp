@@ -36,12 +36,14 @@ typedef struct
 	lcm_t* lcm;
 	pthread_mutex_t lcm_mutex;
 
+	getopt_t* gopt;
 
 	bool first_odo;
 	double odo_x_curr, odo_y_curr, odo_heading_curr;
 	int odo_left_tick, odo_right_tick;
 	std::vector<float> odo_points;
 	pthread_mutex_t odo_points_mutex;
+	pthread_mutex_t odo_curr_mutex;
 
 	bool imu_first;
 	double imu_vel_x_curr, imu_vel_y_curr;
@@ -50,6 +52,9 @@ typedef struct
 	uint64_t imu_utime_last;
 	std::vector<float> imu_points;
 	pthread_mutex_t imu_points_mutex;
+
+	std::vector<std::vector<float>> scans_lidar;
+	pthread_mutex_t scans_mutex;
 
 	int running;
 
@@ -112,13 +117,59 @@ static void sensor_data_handler(const lcm_recv_buf_t* rbuf,
 	state->imu_points.push_back(state->imu_pos_x_curr);
 	state->imu_points.push_back(state->imu_pos_y_curr);
 	state->imu_points.push_back(0);
+	state->imu_points.push_back(state->imu_pos_x_curr);
+	state->imu_points.push_back(state->imu_pos_y_curr);
+	state->imu_points.push_back(0);
 	pthread_mutex_unlock(&state->imu_points_mutex);
 }
 
 static void a0_sensor_data_handler(const lcm_recv_buf_t* rbuf,
 	const char* channel,
 	const maebot_a0_sensor_data_t *msg, void* user) {
+	printf("derp\n");
+	if (state->scans_lidar.size() >= 4) {
+		return;
+	}
 
+	std::vector<float> new_lidar_scan;
+	bool outward = true;
+	pthread_mutex_lock(&state->odo_curr_mutex);
+	double odo_x_curr = state->odo_x_curr;
+	double odo_y_curr = state->odo_y_curr;
+	pthread_mutex_unlock(&state->odo_curr_mutex);
+
+	printf("num ranges: %d\n", msg->lidar.num_ranges);
+	for (int i = 0; i < msg->lidar.num_ranges; ++i) {
+		if (outward) {
+			new_lidar_scan.push_back(odo_x_curr);
+			new_lidar_scan.push_back(odo_y_curr);
+			new_lidar_scan.push_back(0);
+		} else {
+			new_lidar_scan.push_back(new_lidar_scan.size() - 3);
+			new_lidar_scan.push_back(new_lidar_scan.size() - 2);
+			new_lidar_scan.push_back(0);
+		}
+		float theta = msg->lidar.thetas[i];
+		float range = msg->lidar.ranges[i];
+		printf("%f\n", range);
+		new_lidar_scan.push_back(odo_x_curr + range * cos(theta));
+		new_lidar_scan.push_back(odo_y_curr + range * sin(theta));
+		new_lidar_scan.push_back(0);
+		if (!outward) {
+			new_lidar_scan.push_back(odo_x_curr + range * cos(theta));
+			new_lidar_scan.push_back(odo_y_curr + range * sin(theta));
+			new_lidar_scan.push_back(0);
+
+			new_lidar_scan.push_back(odo_x_curr);
+			new_lidar_scan.push_back(odo_y_curr);
+			new_lidar_scan.push_back(0);
+		}
+		outward = !outward;
+	}
+
+	pthread_mutex_lock(&state->scans_mutex);
+	state->scans_lidar.push_back(new_lidar_scan);
+	pthread_mutex_unlock(&state->scans_mutex);
 }
 
 static void motor_feedback_handler(const lcm_recv_buf_t *rbuf,
@@ -143,30 +194,50 @@ static void motor_feedback_handler(const lcm_recv_buf_t *rbuf,
 	double distance = (deltaRight + deltaLeft) / 2;
 	double theta = (deltaRight - deltaLeft) / BASE_LENGTH;
 	double alpha = theta / 2;
+	pthread_mutex_lock(&state->odo_curr_mutex);
 	state->odo_x_curr += distance * cos(state->odo_heading_curr + alpha);
 	state->odo_y_curr += distance * sin(state->odo_heading_curr + alpha);
+	pthread_mutex_unlock(&state->odo_curr_mutex);
 	state->odo_heading_curr += theta;
 
 	pthread_mutex_lock(&state->odo_points_mutex);
+	pthread_mutex_lock(&state->odo_curr_mutex);
 	state->odo_points.push_back(state->odo_x_curr);
 	state->odo_points.push_back(state->odo_y_curr);
 	state->odo_points.push_back(0);
+	state->odo_points.push_back(state->odo_x_curr);
+	state->odo_points.push_back(state->odo_y_curr);
+	state->odo_points.push_back(0);
+	pthread_mutex_unlock(&state->odo_curr_mutex);
 	pthread_mutex_unlock(&state->odo_points_mutex);
 }
 
 void* draw_thread(void*) {
 	while (1) {
+		// drawing odometry path
 		pthread_mutex_lock(&state->odo_points_mutex);
 		int vec_size = state->odo_points.size();
 		vx_resc_t *verts = vx_resc_copyf((state->odo_points).data(), vec_size);
 		pthread_mutex_unlock(&state->odo_points_mutex);
 		vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"), vxo_lines(verts, vec_size / 3, GL_LINES, vxo_lines_style(vx_red, 2.0f)));
 
+		// drawing imu path
 		pthread_mutex_lock(&state->imu_points_mutex);
 		vec_size = state->imu_points.size();
 		verts = vx_resc_copyf((state->imu_points).data(), vec_size);
 		pthread_mutex_unlock(&state->imu_points_mutex);
 		vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"), vxo_lines(verts, vec_size / 3, GL_LINES, vxo_lines_style(vx_blue, 2.0f)));
+
+		// if (getopt_get_bool(state->gopt, "scans")) {
+			pthread_mutex_lock(&state->scans_mutex);
+			for (unsigned int i = 0; i < state->scans_lidar.size(); ++i) {
+				vec_size = state->scans_lidar[i].size();
+				// printf("vec_size: %d\n", vec_size);
+				verts = vx_resc_copyf((state->scans_lidar[i]).data(), vec_size);
+				vx_buffer_add_back(vx_world_get_buffer(state->world,"draw_thread"), vxo_lines(verts, vec_size / 3, GL_LINES, vxo_lines_style(vx_blue, 2.0f)));
+			}
+			pthread_mutex_unlock(&state->scans_mutex);
+		// }
 
 		vx_buffer_swap(vx_world_get_buffer(state->world,"draw_thread"));
 		usleep(1000);
@@ -216,8 +287,14 @@ static void state_destroy(state_t * state)
 	free(state);
 
 	pthread_mutex_destroy(&state->mutex);
+	pthread_mutex_destroy(&state->lcm_mutex);
+	pthread_mutex_destroy(&state->odo_points_mutex);
+	pthread_mutex_destroy(&state->imu_points_mutex);
+	pthread_mutex_destroy(&state->scans_mutex);
+	pthread_mutex_destroy(&state->odo_curr_mutex);
 	lcm_destroy(state->lcm);
 
+	getopt_destroy(state->gopt);
 }
 
 static state_t * state_create()
@@ -249,12 +326,26 @@ static state_t * state_create()
 		exit(1);
 	}
 
+	if (pthread_mutex_init(&state->scans_mutex, NULL)) {
+		printf("scans mutex init failed\n");
+		exit(1);
+	}
+
+	if (pthread_mutex_init(&state->odo_curr_mutex, NULL)) {
+		printf("odo curr mutex init failed\n");
+		exit(1);
+	}
+
 	state->first_odo = true;
 	state->odo_y_curr = 0;
 	state->odo_x_curr = 0;
 	state->odo_heading_curr = 0;
 	state->odo_left_tick = 0;
 	state->odo_right_tick = 0;
+	state->odo_points.push_back(0);
+	state->odo_points.push_back(0);
+	state->odo_points.push_back(0);
+
 
 	state->imu_first = true;
 	state->imu_vel_x_curr = 0;
@@ -263,6 +354,12 @@ static state_t * state_create()
 	state->imu_pos_y_curr = 0;
 	state->imu_heading_curr = 0;
 	state->imu_utime_last = 0;
+	state->imu_points.push_back(0);
+	state->imu_points.push_back(0);
+	state->imu_points.push_back(0);
+
+	state->gopt = getopt_create();
+	getopt_add_bool(state->gopt, 's', "scans", 0, "shows scans");
 
 	state->world = vx_world_create();
 	state->layers = zhash_create(sizeof(vx_display_t*), sizeof(vx_layer_t*), zhash_ptr_hash, zhash_ptr_equals);
@@ -277,6 +374,10 @@ int main(int argc, char ** argv)
 	vx_global_init(); // Call this to initialize the vx-wide lock. Required to start the GL thread or to use the program library
 
 	state = state_create();
+	if (!getopt_parse(state->gopt, argc, argv, 1)) {
+		printf("couldn't parse getopt\n");
+		exit(1);
+	}
 
 	pthread_t draw_thread_pid;
 	pthread_create(&draw_thread_pid, NULL, draw_thread, NULL);
@@ -284,10 +385,9 @@ int main(int argc, char ** argv)
 	pthread_t lcm_handle_thread_pid;
 	pthread_create(&lcm_handle_thread_pid, NULL, lcm_handle_thread, NULL);
 
-	gdk_threads_init ();
-	gdk_threads_enter ();
-
-	gtk_init (&argc, &argv);
+	gdk_threads_init();
+	gdk_threads_enter();
+	gtk_init(&argc, &argv);
 
 	vx_gtk_display_source_t * appwrap = vx_gtk_display_source_create(&state->app);
 	GtkWidget * window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
