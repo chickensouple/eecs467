@@ -20,15 +20,15 @@ int main() {
 	state.lcm = lcm_create(NULL);
 
 	for (int i = 0; i < 6; ++i) {
-		state.motor_command_msg.motor_speed_left = 0.15;
-		state.motor_command_msg.motor_speed_right = 0.15;
+		state.motor_command_msg.motor_speed_left = 0.20;
+		state.motor_command_msg.motor_speed_right = 0.20;
 		maebot_motor_driver_command_t_publish(state.lcm, "MAEBOT_MOTOR_DRIVER_COMMAND", &state.motor_command_msg);
 		usleep(5 * 1e6);
 
 		state.motor_command_msg.motor_speed_left = 0;
 		state.motor_command_msg.motor_speed_right = 0;
 		maebot_motor_driver_command_t_publish(state.lcm, "MAEBOT_MOTOR_DRIVER_COMMAND", &state.motor_command_msg);
-		usleep(1 * 1e6);
+		usleep(0.5 * 1e6);
 
 		state.motor_command_msg.motor_speed_left = 0.25;
 		state.motor_command_msg.motor_speed_right = -0.25;
