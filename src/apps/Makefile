@@ -71,7 +71,6 @@ $(BIN_EECS467_MAEBOT_A0): maebot_a0.o $(LIBDEPS)
 	@echo "\t$@"
 	@$(CPP) -o $@ $^ $(LDFLAGS) $(CFLAGS)
 
-<<<<<<< HEAD
 $(BIN_EECS467_REXARM_SEQUENCE_TEST): rexarm_sequence_test.o $(LIBDEPS)
 	@echo "\t$@"
 	@$(CC) -o $@ $^ $(LDFLAGS)
@@ -79,7 +78,7 @@ $(BIN_EECS467_REXARM_SEQUENCE_TEST): rexarm_sequence_test.o $(LIBDEPS)
 $(BIN_EECS467_REX_VX): vx_rexarm_demo.o $(LIBDEPS)
 	@echo "\t$@"
 	@$(CC) -o $@ $^ $(LDFLAGS)
-=======
+
 $(BIN_EECS467_MAEBOT_VX_A0): maebot_vx_a0.o $(LIBDEPS)
 	@echo "\t$@"
 	@$(CPP) -o $@ $^ $(LDFLAGS) $(CFLAGS)
@@ -91,7 +90,6 @@ $(BIN_MAEBOT_WHEEL_DRIVER): maebot_wheel_driver.o $(LIBDEPS)
 $(BIN_EECS467_MAEBOT_WHEEL_DRIVER_TEST): maebot_wheel_driver_test.o $(LIBDEPS)
 	@echo "\t$@"
 	@$(CPP) -o $@ $^ $(LDFLAGS) $(CFLAGS)
->>>>>>> origin/a0
 
 clean:
 	@rm -f *.o *~ *.a
