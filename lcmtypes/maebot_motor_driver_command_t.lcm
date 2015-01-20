@@ -1,0 +1,4 @@
+struct maebot_motor_driver_command_t {
+	float motor_speed_left;
+	float motor_speed_right;
+}

@@ -36,10 +36,14 @@ BIN_EECS467_MAEBOT_VIDEO_TELOP = $(BIN_PATH)/eecs467_maebot_video_telop
 BIN_EECS467_MAEBOT_A0 = $(BIN_PATH)/eecs467_maebot_a0
 BIN_EECS467_REXARM_SEQUENCE_TEST = $(BIN_PATH)/eecs467_rexarm_sequence_test
 BIN_EECS467_REX_VX = $(BIN_PATH)/eecs467_rex_vx
+BIN_EECS467_MAEBOT_VX_A0 = $(BIN_PATH)/eecs467_maebot_vx_a0
+BIN_MAEBOT_WHEEL_DRIVER = $(BIN_PATH)/maebot_wheel_driver
+BIN_EECS467_MAEBOT_WHEEL_DRIVER_TEST = $(BIN_PATH)/eecs467_maebot_wheel_driver_test
 
 ALL = $(LIB_EECS467) $(BIN_EECS467_GUI_EXAMPLE) $(BIN_EECS467_REXARM_EXAMPLE) \
       $(BIN_EECS467_MAEBOT_EXAMPLE) $(BIN_EECS467_MAEBOT_VIDEO_TELOP) \
-      $(BIN_EECS467_MAEBOT_A0) $(BIN_EECS467_REXARM_SEQUENCE_TEST) $(BIN_EECS467_REX_VX)
+      $(BIN_EECS467_MAEBOT_A0) $(BIN_EECS467_MAEBOT_VX_A0) $(BIN_MAEBOT_WHEEL_DRIVER) \
+      $(BIN_EECS467_MAEBOT_WHEEL_DRIVER_TEST) $(BIN_EECS467_REXARM_SEQUENCE_TEST) $(BIN_EECS467_REX_VX)
 
 all: $(ALL)
 
@@ -67,6 +71,7 @@ $(BIN_EECS467_MAEBOT_A0): maebot_a0.o $(LIBDEPS)
 	@echo "\t$@"
 	@$(CPP) -o $@ $^ $(LDFLAGS) $(CFLAGS)
 
+<<<<<<< HEAD
 $(BIN_EECS467_REXARM_SEQUENCE_TEST): rexarm_sequence_test.o $(LIBDEPS)
 	@echo "\t$@"
 	@$(CC) -o $@ $^ $(LDFLAGS)
@@ -74,6 +79,19 @@ $(BIN_EECS467_REXARM_SEQUENCE_TEST): rexarm_sequence_test.o $(LIBDEPS)
 $(BIN_EECS467_REX_VX): vx_rexarm_demo.o $(LIBDEPS)
 	@echo "\t$@"
 	@$(CC) -o $@ $^ $(LDFLAGS)
+=======
+$(BIN_EECS467_MAEBOT_VX_A0): maebot_vx_a0.o $(LIBDEPS)
+	@echo "\t$@"
+	@$(CPP) -o $@ $^ $(LDFLAGS) $(CFLAGS)
+
+$(BIN_MAEBOT_WHEEL_DRIVER): maebot_wheel_driver.o $(LIBDEPS)
+	@echo "\t$@"
+	@$(CPP) -o $@ $^ $(LDFLAGS) $(CFLAGS)
+
+$(BIN_EECS467_MAEBOT_WHEEL_DRIVER_TEST): maebot_wheel_driver_test.o $(LIBDEPS)
+	@echo "\t$@"
+	@$(CPP) -o $@ $^ $(LDFLAGS) $(CFLAGS)
+>>>>>>> origin/a0
 
 clean:
 	@rm -f *.o *~ *.a
