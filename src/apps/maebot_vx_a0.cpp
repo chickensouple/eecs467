@@ -76,7 +76,7 @@ void* lcm_handle_thread(void* arg) {
 		pthread_mutex_lock(&state->lcm_mutex);
 		lcm_handle(state->lcm);
 		pthread_mutex_unlock(&state->lcm_mutex);
-		usleep(1000);
+		usleep(100);
 	}
 
 	return NULL;
@@ -140,24 +140,29 @@ static void a0_sensor_data_handler(const lcm_recv_buf_t* rbuf,
 
 	printf("num ranges: %d\n", msg->lidar.num_ranges);
 	for (int i = 0; i < msg->lidar.num_ranges; ++i) {
+		float theta = msg->lidar.thetas[i];
+		float range = msg->lidar.ranges[i];
+		float new_pt_x = odo_x_curr + range * cos(theta);
+		float new_pt_y = odo_y_curr + range * sin(theta);
 		if (outward) {
 			new_lidar_scan.push_back(odo_x_curr);
 			new_lidar_scan.push_back(odo_y_curr);
+			new_lidar_scan.push_back(0);
+
+			new_lidar_scan.push_back(new_pt_x);
+			new_lidar_scan.push_back(new_pt_y);
 			new_lidar_scan.push_back(0);
 		} else {
 			new_lidar_scan.push_back(new_lidar_scan.size() - 3);
 			new_lidar_scan.push_back(new_lidar_scan.size() - 2);
 			new_lidar_scan.push_back(0);
-		}
-		float theta = msg->lidar.thetas[i];
-		float range = msg->lidar.ranges[i];
-		printf("%f\n", range);
-		new_lidar_scan.push_back(odo_x_curr + range * cos(theta));
-		new_lidar_scan.push_back(odo_y_curr + range * sin(theta));
-		new_lidar_scan.push_back(0);
-		if (!outward) {
-			new_lidar_scan.push_back(odo_x_curr + range * cos(theta));
-			new_lidar_scan.push_back(odo_y_curr + range * sin(theta));
+
+			new_lidar_scan.push_back(new_pt_x);
+			new_lidar_scan.push_back(new_pt_y);
+			new_lidar_scan.push_back(0);
+
+			new_lidar_scan.push_back(new_pt_x);
+			new_lidar_scan.push_back(new_pt_y);
 			new_lidar_scan.push_back(0);
 
 			new_lidar_scan.push_back(odo_x_curr);
@@ -231,6 +236,7 @@ void* draw_thread(void*) {
 		// if (getopt_get_bool(state->gopt, "scans")) {
 			pthread_mutex_lock(&state->scans_mutex);
 			for (unsigned int i = 0; i < state->scans_lidar.size(); ++i) {
+				printf("DERP DERP\n");
 				vec_size = state->scans_lidar[i].size();
 				// printf("vec_size: %d\n", vec_size);
 				verts = vx_resc_copyf((state->scans_lidar[i]).data(), vec_size);
