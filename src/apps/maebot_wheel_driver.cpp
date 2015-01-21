@@ -160,6 +160,8 @@ static void motorFeedbackHandler(const lcm_recv_buf_t* rbuf,
 	}
 	state.motor_command_msg.motor_left_speed = driver.getMsgSpeedLeft();
 	state.motor_command_msg.motor_right_speed = driver.getMsgSpeedRight();
+	printf("%f\t%f\n", state.motor_command_msg.motor_left_speed,
+		state.motor_command_msg.motor_right_speed);
 	maebot_motor_command_t_publish(state.lcm, "MAEBOT_MOTOR_COMMAND", &state.motor_command_msg);
 	pthread_mutex_unlock(&state.wheel_driver_mutex);
 }

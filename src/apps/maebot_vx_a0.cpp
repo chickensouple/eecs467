@@ -138,10 +138,11 @@ static void corner_scan_handler(const lcm_recv_buf_t* rbuf,
 	pthread_mutex_lock(&state->odo_curr_mutex);
 	double odo_x_curr = state->odo_x_curr;
 	double odo_y_curr = state->odo_y_curr;
+	float odo_heading_curr = state->odo_heading_curr;
 	pthread_mutex_unlock(&state->odo_curr_mutex);
 
 	for (int i = 0; i < msg->lidar.num_ranges; ++i) {
-		float theta = msg->lidar.thetas[i];
+		float theta = msg->lidar.thetas[i] + odo_heading_curr + 3.1415;
 		float range = msg->lidar.ranges[i];
 		float new_pt_x = odo_x_curr + range * cos(theta);
 		float new_pt_y = odo_y_curr + range * sin(theta);
